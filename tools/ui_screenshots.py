@@ -273,7 +273,7 @@ class Shots:
         page.wait_for_timeout(800)
 
         # 12 record idle, English
-        page.locator("#lang-select").select_option("en")
+        page.locator("#lang-en").click()
         page.wait_for_timeout(800)
         page.locator('.topbar-btn[data-view="capture"]').click()
         self.select(page, KN8)
@@ -284,7 +284,7 @@ class Shots:
         self.shot(page, "12_record_idle_en")
 
         # 13 narrow 860 while recording (zh UI)
-        page.locator("#lang-select").select_option("zh")
+        page.locator("#lang-zh").click()
         page.wait_for_timeout(700)
         page.locator(".btn.primary.big").click()
         wait(lambda: status(KN8) == "recording", "narrow rec")

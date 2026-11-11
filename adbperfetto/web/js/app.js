@@ -2,6 +2,7 @@
 
 import { api, events } from "./api.js";
 import { t, setLang, getLang, resolveLang } from "./i18n.js";
+import { fmtSize } from "./tape.js";
 import { createEditor } from "./editor.js";
 import { createBuilder } from "./builder.js";
 import { createCapture } from "./capture.js";
@@ -67,7 +68,7 @@ function toast(msg) {
   host.textContent = msg;
   host.classList.add("show");
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => host.classList.remove("show"), 3000);
+  toast._t = setTimeout(() => host.classList.remove("show"), 4000);
 }
 
 // ------------------------------------------------------------------ modal
@@ -139,6 +140,7 @@ function applyStaticStrings() {
   });
   document.documentElement.lang = getLang() === "zh" ? "zh-CN" : "en";
   $("#out-path-label").textContent = t("outdir.label");
+  markDirty(app.editorDirty);
   document.title = app.capture ? app.capture.pageTitle()
                                : t("title.default");
 }
@@ -159,7 +161,6 @@ function renderAll() {
     renderCapture();
   }
   if (app.builder) app.builder.render();
-  updateEmpty();
 }
 
 // ------------------------------------------------------------------ views
@@ -221,7 +222,6 @@ function onState(state) {
     app.selected = first ? first.serial : null;
   }
   renderCapture();
-  updateEmpty();
 }
 
 async function loadDeviceLists(serial) {
@@ -260,19 +260,6 @@ function getLists() {
   };
 }
 
-function updateEmpty() {
-  const empty = $("#empty");
-  const wrap = $("#capture-wrap");
-  const has = app.state && app.state.devices.length > 0;
-  empty.classList.toggle("hidden", has);
-  wrap.classList.toggle("hidden", !has);
-  if (!has) {
-    $("#empty-title").textContent = t("guide.waiting");
-    $("#empty-text").textContent =
-      [t("guide.step1"), t("guide.step2"), t("guide.step3")].join("\n\n");
-  }
-}
-
 // ------------------------------------------------------------------ capture
 
 function renderCapture() {
@@ -299,11 +286,11 @@ async function refreshOutputs() {
 function initConfigs() {
   app.editor = createEditor($("#pbtx-editor"), {
     onInput: (text) => {
-      if (app.loadedPresetId) app.editorDirty = true;
+      if (app.loadedPresetId) markDirty(true);
       clearTimeout(app.parseTimer);
       app.parseTimer = setTimeout(() => parseText(text), 300);
     },
-    onSave: (text) => parseText(text),
+    onSave: () => saveConfig(),
   });
   app.builder = createBuilder($("#builder"), {
     getLists,
@@ -314,23 +301,40 @@ function initConfigs() {
         app.editor.setText(res.text, true);
         app.editor.setError(0);
         app.editorValid = true;
-        if (app.loadedPresetId) app.editorDirty = true;
-        setParseStatus({ ok: true });
+        if (app.loadedPresetId) markDirty(true);
+        parseText(res.text);
       } catch (e) { toast(e.message); }
     },
   });
+  $("#cfg-name").addEventListener("input", () => markDirty(true));
 }
 
-function setParseStatus({ ok, error }) {
-  const node = $("#parse-status");
+function markDirty(dirty) {
+  app.editorDirty = dirty;
+  const mark = $("#edited-mark");
+  mark.textContent = dirty ? `● ${t("cfg.edited")}` : "";
+  mark.classList.toggle("hidden", !dirty);
+}
+
+function setParseStatus({ ok, error, durationMs, bufferKb }) {
+  const host = $("#status-pills");
+  host.textContent = "";
+  const add = (text, cls) => {
+    const pill = el("span", "pill" + (cls ? " " + cls : ""), text);
+    host.appendChild(pill);
+  };
   if (ok) {
-    node.textContent = t("editor.valid");
-    node.className = "parse-status ok";
     app.editor.setError(0);
     $("#parse-note").classList.add("hidden");
+    add(t("editor.valid"), "ok");
+    if (bufferKb) {
+      add(t("record.buffer", { size: fmtSize(bufferKb * 1024) }));
+    }
+    add(durationMs ? t("editor.durationMin",
+                       { min: Math.round(durationMs / 60000) })
+                   : t("record.noLimit"));
   } else if (error) {
-    node.textContent = t("editor.invalid");
-    node.className = "parse-status bad";
+    add(t("editor.invalid"), "bad");
     app.editor.setError(error.line);
     const note = $("#parse-note");
     note.textContent = t("editor.lineError",
@@ -351,7 +355,8 @@ async function parseText(text) {
     }
     app.editorModel = res.model;
     app.editorValid = true;
-    setParseStatus({ ok: true });
+    setParseStatus({ ok: true, durationMs: res.duration_ms,
+                     bufferKb: res.buffer_kb });
     app.builder.setModel(res.model, false);
   } catch (e) {
     toast(e.message);
@@ -369,10 +374,22 @@ async function loadPreset(id, skipConfirm) {
     app.editor.setText(p.text);
     app.editorModel = null;
     app.loadedPresetId = id;
-    app.editorDirty = false;
+    $("#cfg-name").value = p.name;
+    markDirty(false);
     markPresetSelection();
     parseText(p.text);
   } catch (e) { toast(e.message); }
+}
+
+function loadDraftText(text, name) {
+  app.editor.setText(text);
+  app.editorModel = null;
+  app.loadedPresetId = null;
+  app.draft = { text, name };
+  $("#cfg-name").value = name || t("cfg.draft");
+  markDirty(true);
+  markPresetSelection();
+  parseText(text);
 }
 
 function markPresetSelection() {
@@ -396,12 +413,22 @@ function renderPresetList() {
       const item = el("button", "preset-item", p.name);
       item.dataset.id = p.id;
       if (p.id === app.loadedPresetId) item.classList.add("selected");
-      if (p.id === app.settings.default_preset) {
-        item.appendChild(el("span", "preset-badge",
-                            " " + t("cfg.default")));
-      }
       item.addEventListener("click", () => loadPreset(p.id));
       row.appendChild(item);
+      const star = el("button",
+        "preset-star" +
+          (p.id === app.settings.default_preset ? " is-default" : ""),
+        p.id === app.settings.default_preset ? "★" : "☆");
+      star.title = t("cfg.setDefault");
+      star.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        try {
+          app.settings = await api.putSettings({ default_preset: p.id });
+          renderPresetList();
+          toast(t("toast.defaultSet"));
+        } catch (err) { toast(err.message); }
+      });
+      row.appendChild(star);
       if (!p.builtin) {
         const del = el("button", "preset-del", "✕");
         del.addEventListener("click", (e) => {
@@ -423,10 +450,31 @@ function renderPresetList() {
   }
 }
 
+async function savePresetAs(name) {
+  const res = await api.savePreset(name, app.editor.getText());
+  app.presets = (await api.presets()).presets || [];
+  app.loadedPresetId = res.id;
+  $("#cfg-name").value = name;
+  app.draft = null;
+  markDirty(false);
+  renderPresetList();
+  toast(t("toast.presetSaved"));
+}
+
+function saveConfig() {
+  const loaded = app.presets.find((p) => p.id === app.loadedPresetId);
+  if (loaded && !loaded.builtin) {
+    savePresetAs(loaded.name).catch((e) => toast(e.message));
+    return;
+  }
+  saveAsPreset();
+}
+
 function saveAsPreset() {
   const input = document.createElement("input");
   input.type = "text";
   input.placeholder = t("cfg.namePrompt");
+  input.value = $("#cfg-name").value || "";
   const modal = showModal({
     title: t("cfg.saveAs"),
     body: input,
@@ -436,18 +484,20 @@ function saveAsPreset() {
         const name = input.value.trim();
         if (!name) return;
         try {
-          const res = await api.savePreset(name, app.editor.getText());
-          app.presets = (await api.presets()).presets || [];
-          app.loadedPresetId = res.id;
-          app.editorDirty = false;
-          renderPresetList();
-          toast(t("toast.presetSaved"));
+          await savePresetAs(name);
           c();
         } catch (e) { toast(e.message); }
       }, "primary"],
     ],
   });
   input.focus();
+}
+
+async function importConfigFile(file) {
+  if (!/\.(pbtx|conf|txt|cfg)$/i.test(file.name)) return;
+  const text = await file.text();
+  loadDraftText(text, file.name.replace(/\.[^.]+$/, ""));
+  toast(t("toast.imported"));
 }
 
 function applyAsDefault() {
@@ -472,8 +522,15 @@ function renderHeaderInfo() {
   const node = $("#out-path");
   node.textContent = dir;
   node.title = dir;
-  const sel = $("#lang-select");
-  if (sel.value !== getLang()) sel.value = getLang();
+  const lang = getLang();
+  $("#lang-zh").classList.toggle("active", lang === "zh");
+  $("#lang-en").classList.toggle("active", lang === "en");
+  const dev = app.state && app.state.devices.find(
+    (d) => d.serial === app.selected);
+  const model = dev && dev.info && dev.info.model;
+  $("#btn-apply-default").textContent = model
+    ? t("cfg.useFor", { device: model })
+    : t("btn.applyDefault");
 }
 
 function changeOutputDir() {
@@ -525,9 +582,8 @@ function bindStatic() {
     b.addEventListener("click", () => setView(b.dataset.view));
   });
   $("#btn-quit").addEventListener("click", quitApp);
-  $("#lang-select").addEventListener("change", (e) => {
-    switchLang(e.target.value);
-  });
+  $("#lang-zh").addEventListener("click", () => switchLang("zh"));
+  $("#lang-en").addEventListener("click", () => switchLang("en"));
   $("#btn-open-dir").addEventListener("click", async () => {
     try { await api.openDir(); }
     catch (e) { toast(e.message); }
@@ -535,6 +591,33 @@ function bindStatic() {
   $("#btn-change-dir").addEventListener("click", changeOutputDir);
   $("#btn-save-preset").addEventListener("click", saveAsPreset);
   $("#btn-apply-default").addEventListener("click", applyAsDefault);
+  $("#btn-import").addEventListener("click",
+                                   () => $("#import-file").click());
+  $("#import-file").addEventListener("change", (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (file) importConfigFile(file);
+    e.target.value = "";
+  });
+  const cfgView = $("#view-configs");
+  let dragDepth = 0;
+  cfgView.addEventListener("dragenter", (e) => {
+    e.preventDefault();
+    dragDepth += 1;
+    $("#configs-wrap").classList.add("dragging");
+  });
+  cfgView.addEventListener("dragover", (e) => e.preventDefault());
+  cfgView.addEventListener("dragleave", (e) => {
+    e.preventDefault();
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (!dragDepth) $("#configs-wrap").classList.remove("dragging");
+  });
+  cfgView.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dragDepth = 0;
+    $("#configs-wrap").classList.remove("dragging");
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file) importConfigFile(file);
+  });
 
   document.addEventListener("keydown", (e) => {
     const tag = document.activeElement && document.activeElement.tagName;

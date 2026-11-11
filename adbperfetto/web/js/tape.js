@@ -111,9 +111,14 @@ export function createTape(container) {
                              nowS * 1.25));
   }
 
+  const FROZEN = new Set(["stopping", "pulling", "done", "ended",
+                        "failed", "abandoned"]);
+
   function elapsedNow() {
     const base = spec.elapsedS || 0;
-    if (!spec || spec.status === "idle") return base;
+    if (!spec || spec.status === "idle" || FROZEN.has(spec.status)) {
+      return base;
+    }
     const extra = (performance.now() - spec.receivedAt) / 1000;
     return base + extra;
   }
@@ -132,6 +137,7 @@ export function createTape(container) {
 
     // ticks
     gTicks.textContent = "";
+    gTicks.setAttribute("opacity", idle ? 0.4 : 1);
     const step = niceStep(span);
     for (let sec = 0; sec <= span + 0.5; sec += step) {
       const px = x(sec, span);
@@ -154,19 +160,12 @@ export function createTape(container) {
 
     // recorded bar
     gBar.textContent = "";
-    const endS = frozen || spec.status === "done" ? elapsed : elapsed;
-    const width = x(Math.min(endS, span), span);
-    const barColor = frozen || spec.status === "done"
-      ? "var(--scale)" : "var(--live)";
-    const barOpacity = idle ? 0 : (frozen ? 0.6 : 1);
-    if (idle) {
+    const width = x(Math.min(elapsed, span), span);
+    const barColor = frozen ? "var(--scale)" : "var(--live)";
+    const barOpacity = frozen ? 0.6 : 1;
+    if (!idle && elapsed > 0) {
       gBar.appendChild(el("rect", {
-        x: 0, y: 30, width: x(span, span) * 0.15 || 24, height: 14,
-        fill: "var(--rule)", opacity: 0.4,
-      }));
-    } else {
-      gBar.appendChild(el("rect", {
-        x: 0, y: 30, width, height: 14,
+        x: 0, y: 30, width: Math.max(2, width), height: 14,
         fill: barColor, opacity: barOpacity,
       }));
     }
@@ -204,7 +203,7 @@ export function createTape(container) {
         fill: "var(--recorder)",
       }));
       const num = el("text", {
-        x: px + 3, y: 19, class: "tape-flag-num",
+        x: px + 4, y: 48, class: "tape-flag-num",
       });
       num.textContent = String(i + 1);
       flag.appendChild(num);
@@ -227,11 +226,23 @@ export function createTape(container) {
         stroke: "var(--scale)", "stroke-width": "2",
       }));
       const label = el("text", {
-        x: Math.min(px + 6, 940), y: 18,
-        class: "tape-playhead-label",
+        y: 18, class: "tape-playhead-label",
       });
       label.textContent = fmtTime(elapsed);
+      if (px < 150) {
+        label.setAttribute("x", px + 6);
+        label.setAttribute("text-anchor", "start");
+      } else {
+        label.setAttribute("x", px - 6);
+        label.setAttribute("text-anchor", "end");
+      }
       gPlay.appendChild(label);
+      const box = label.getBBox();
+      gPlay.insertBefore(el("rect", {
+        x: box.x - 3, y: box.y - 2,
+        width: box.width + 6, height: box.height + 4,
+        rx: 2, class: "tape-playhead-chip",
+      }), label);
     }
   }
 

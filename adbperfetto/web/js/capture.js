@@ -19,6 +19,23 @@ function button(className, text, onClick) {
   return b;
 }
 
+function headline(s) {
+  switch (s.status) {
+    case "starting": return t("status.starting");
+    case "recording":
+      if (s.stop_requested) return t("btn.stopRequested");
+      if (!s.connected) return t("state.disconnected");
+      if (s.snapshot_busy) return t("btn.savingSnapshot");
+      return s.mode === "flight" ? t("status.flight")
+                                 : t("status.recording");
+    case "stopping": return t("status.stopping");
+    case "pulling":
+      return s.ended_by_duration ? t("msg.limit")
+                                 : t("status.pulling");
+    default: return "";
+  }
+}
+
 function deviceStatus(dev) {
   const s = dev.session;
   if (s && ACTIVE.has(s.status)) {
@@ -53,6 +70,41 @@ function elapsedS(session) {
   return Math.max(0, (Date.now() / 1000) - session.started_at);
 }
 
+// Mirrors outputs.safe_filename on the backend.
+function safeFilename(value) {
+  return String(value || "")
+    .replace(/[^A-Za-z0-9._-]+/g, "_")
+    .replace(/^[ ._]+|[ ._]+$/g, "") || "unknown";
+}
+
+function emptyGuide(state) {
+  const wrap = el("div", "empty");
+  wrap.appendChild(el("div", "empty-title", t("empty.title")));
+  const steps = el("ol", "empty-steps");
+  [t("guide.step1"), t("guide.step2"), t("guide.step3")]
+    .forEach((text, i) => {
+      const li = el("li");
+      li.append(el("span", "step-num", `${i + 1}.`),
+                el("span", null, text));
+      steps.appendChild(li);
+    });
+  wrap.appendChild(steps);
+  const waiting = el("div", "empty-waiting");
+  waiting.append(el("span", "pulse-dot"),
+                 el("span", null, t("guide.waiting")));
+  wrap.appendChild(waiting);
+  if (state && state.adb_ok === false) {
+    const block = el("div", "block failed-block adb-error");
+    block.appendChild(el("div", "block-title", t("adb.error.title")));
+    if (state.adb_error) {
+      block.appendChild(el("pre", "adb-error-detail", state.adb_error));
+    }
+    block.appendChild(el("div", "hint dim", t("adb.error.fix")));
+    wrap.appendChild(block);
+  }
+  return wrap;
+}
+
 export function createCapture(deps) {
   // deps: {rail, main, getPrefs(serial), setPrefs(serial, patch),
   //        getDraft(), openConfigs(presetId), showModal(opts),
@@ -64,6 +116,7 @@ export function createCapture(deps) {
     tapeHost: null,
     refs: {},
     orphanHidden: new Set(),
+    showAllSaved: new Set(),
     selected: null,
     state: null,
     presets: [],
@@ -96,6 +149,10 @@ export function createCapture(deps) {
 
   function renderRail() {
     deps.rail.textContent = "";
+    if (!ui.state.devices.length) {
+      deps.rail.appendChild(el("div", "rail-empty", t("rail.empty")));
+      return;
+    }
     for (const dev of sortDevices(ui.state.devices)) {
       const status = deviceStatus(dev);
       const row = el("button", "rail-row");
@@ -453,23 +510,28 @@ export function createCapture(deps) {
       const mem = el("span", "field-meta");
       ui.refs.memory = mem;
       row.appendChild(mem);
-      if (dev.info && dev.info.sdk && !dev.info.supports_clone) {
-        row.appendChild(el("div", "hint amber", t("flight.oneShot")));
-      }
-      row.appendChild(el("div", "hint dim", t("flight.explainer")));
     }
     return row;
   }
 
-  function readouts() {
+  function readouts(dev, prefs) {
+    const s = dev.session;
+    if (!s) return null;
+    const mode = s.mode || "record";
+    const defs = mode === "record"
+      ? [["elapsed", t("readout.elapsed"), true],
+         ["size", t("readout.size")],
+         ["phone", t("readout.phone")]]
+      : [["elapsed", t("readout.elapsed"), true],
+         ["snaps", t("readout.snapshots")],
+         ["memory", t("readout.memory")],
+         ["phone", t("readout.phone")]];
+    if (mode === "record" && s.mobilelog) {
+      defs.splice(2, 0, ["mlog", t("readout.mobilelog")]);
+    }
     const row = el("div", "readouts");
-    for (const [id, label] of [
-      ["elapsed", t("readout.elapsed")],
-      ["size", t("readout.size")],
-      ["phone", t("readout.phone")],
-      ["mlog", t("readout.mobilelog")],
-    ]) {
-      const item = el("div", "readout");
+    for (const [id, label, big] of defs) {
+      const item = el("div", "readout" + (big ? " big" : ""));
       const value = el("div", "readout-value");
       value.id = "ro-" + id;
       const lab = el("div", "readout-label", label);
@@ -505,11 +567,18 @@ export function createCapture(deps) {
     return list;
   }
 
-  function outputsList() {
+  function outputsList(dev) {
     const wrap = el("div", "saved");
+    const model = (dev.info && dev.info.model) || dev.serial;
+    const prefix = safeFilename(model);
+    const mine = (ui.outputs || []).filter(
+      (out) => out.name && out.name.startsWith(prefix));
+    if (!mine.length) return wrap;
     wrap.appendChild(el("div", "saved-title", t("saved.title")));
     const list = el("div", "saved-list");
-    for (const out of ui.outputs) {
+    const expanded = ui.showAllSaved.has(dev.serial);
+    const shown = expanded ? mine : mine.slice(0, 8);
+    for (const out of shown) {
       const row = el("div", "saved-row");
       row.append(
         el("span", "saved-name", out.name),
@@ -524,6 +593,17 @@ export function createCapture(deps) {
       list.appendChild(row);
     }
     wrap.appendChild(list);
+    if (mine.length > 8) {
+      const toggle = button("btn quiet small",
+        expanded ? t("saved.showLess")
+                 : t("saved.showAll", { n: mine.length }), () => {
+        if (expanded) ui.showAllSaved.delete(dev.serial);
+        else ui.showAllSaved.add(dev.serial);
+        ui.panelSig = "";
+      });
+      toggle.id = "saved-toggle";
+      wrap.appendChild(toggle);
+    }
     return wrap;
   }
 
@@ -532,8 +612,10 @@ export function createCapture(deps) {
   function statusSection(dev, prefs) {
     const s = dev.session;
     const sec = el("div", "status-area");
+    const orphanShown = dev.orphan && !s &&
+      !ui.orphanHidden.has(dev.serial);
 
-    if (dev.orphan && !s && !ui.orphanHidden.has(dev.serial)) {
+    if (orphanShown) {
       const block = el("div", "block amber-block");
       block.appendChild(el("div", "block-text", t("orphan.text")));
       const row = el("div", "btn-row");
@@ -557,13 +639,18 @@ export function createCapture(deps) {
     msg.id = "sess-msg";
     msg.setAttribute("aria-live", "polite");
     sec.appendChild(msg);
+    const detail = el("div", "message-detail");
+    detail.id = "sess-detail";
+    sec.appendChild(detail);
 
     if (!s) {
-      const mode = prefs.mode || "record";
-      sec.appendChild(button(
-        "btn primary big",
-        mode === "record" ? t("btn.startRecord") : t("btn.startFlight"),
-        () => startSession(dev, prefs, mode)));
+      if (!orphanShown) {
+        const mode = prefs.mode || "record";
+        sec.appendChild(button(
+          "btn primary big",
+          mode === "record" ? t("btn.startRecord") : t("btn.startFlight"),
+          () => startSession(dev, prefs, mode)));
+      }
       return sec;
     }
 
@@ -583,7 +670,7 @@ export function createCapture(deps) {
                          () => stopSession(dev));
         if (s.stop_requested) b.disabled = true;
         sec.appendChild(b);
-        if (!s.stop_requested) {
+        if (!s.stop_requested && s.connected) {
           sec.appendChild(el("div", "hint dim", t("hint.unplug")));
         }
       } else {
@@ -773,30 +860,25 @@ export function createCapture(deps) {
       if (cls !== undefined) node.className = cls;
     };
     const msg = document.getElementById("sess-msg");
+    const detail = document.getElementById("sess-detail");
     if (s && msg) {
-      let text = s.message || "";
-      if (s.status === "recording" && s.stop_requested) {
-        text = t("btn.stopRequested");
-      } else if (s.status === "pulling" && s.ended_by_duration) {
-        text = t("msg.limit");
-      }
-      msg.textContent = text;
+      msg.textContent = headline(s);
     } else if (msg) {
       msg.textContent = "";
     }
+    if (detail) {
+      detail.textContent = s &&
+        (s.status === "starting" || s.status === "pulling")
+        ? (s.message || "") : "";
+    }
     if (!s) {
-      set("ro-elapsed", "0:00");
-      set("ro-size", "—");
-      set("ro-phone",
-          dev.state === "device" ? t("phone.connected")
-                                 : t("state." + dev.state),
-          "readout-value " +
-            (dev.state === "device" ? "live" : "amber"));
-      set("ro-mlog", "");
       return;
     }
     set("ro-elapsed", fmtTime(elapsedS(s)));
     set("ro-size", s.size_bytes ? fmtSize(s.size_bytes) : "—");
+    set("ro-snaps", String((s.snapshots || []).length));
+    set("ro-memory",
+        s.buffer_kb ? fmtSize(s.buffer_kb * 1024) : "—");
     set("ro-phone",
         s.connected ? t("phone.connected") : t("phone.disconnected"),
         "readout-value " + (s.connected ? "live" : "amber"));
@@ -819,22 +901,41 @@ export function createCapture(deps) {
     const dev = ui.selected;
     ui.refs = {};
     host.textContent = "";
-    if (!dev) return;
+    if (!dev) {
+      host.appendChild(emptyGuide(ui.state));
+      return;
+    }
     const prefs = getPrefs(dev.serial);
-    host.appendChild(deviceHeader(dev));
-    host.appendChild(segmented(dev, prefs));
-    host.appendChild(configRow(dev, prefs));
-    host.appendChild(inputsRow(dev, prefs));
+    const inner = el("div", "panel-inner");
+    host.appendChild(inner);
+    inner.appendChild(deviceHeader(dev));
+    inner.appendChild(segmented(dev, prefs));
+    inner.appendChild(configRow(dev, prefs));
+    const s = dev.session;
+    const running = s && ACTIVE.has(s.status);
+    const mode = running ? s.mode : (prefs.mode || "record");
+    if (mode === "flight" && !s) {
+      inner.appendChild(el("div", "hint dim", t("flight.explainer")));
+    }
+    inner.appendChild(inputsRow(dev, prefs));
+    if (mode === "flight" && !s && dev.info && dev.info.sdk &&
+        !dev.info.supports_clone) {
+      inner.appendChild(el("div", "hint amber", t("flight.oneShot")));
+    }
     ui.refs.duration = host.querySelector("#inp-duration");
     ui.refs.lifetime = host.querySelector("#inp-lifetime");
     ui.tapeHost = el("div", "tape-host");
-    host.appendChild(ui.tapeHost);
-    host.appendChild(readouts());
-    for (const id of ["elapsed", "size", "phone", "mlog"]) {
-      ui.refs["ro-" + id] = host.querySelector("#ro-" + id);
+    inner.appendChild(ui.tapeHost);
+    const ro = readouts(dev, prefs);
+    if (ro) {
+      inner.appendChild(ro);
+      for (const id of ["elapsed", "size", "snaps", "memory", "phone",
+                        "mlog"]) {
+        ui.refs["ro-" + id] = host.querySelector("#ro-" + id);
+      }
     }
-    host.appendChild(statusSection(dev, prefs));
-    host.appendChild(outputsList());
+    inner.appendChild(statusSection(dev, prefs));
+    inner.appendChild(outputsList(dev));
     if (ui.tape) ui.tape.destroy();
     ui.tape = createTape(ui.tapeHost);
     ui.tape.update(tapeSpec(dev, prefs));
@@ -864,7 +965,10 @@ export function createCapture(deps) {
       }
       updateRailTimes();
       if (!dev) {
-        ui.panelSig = "";
+        if (ui.panelSig !== "empty") {
+          ui.panelSig = "empty";
+          renderPanel();
+        }
         return;
       }
       const sig = panelSignature(dev);

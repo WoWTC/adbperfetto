@@ -38,6 +38,7 @@ export function createBuilder(container, { onChange, getLists } = {}) {
     disabled: false,
     filters: { atrace: "", ftrace: "" },
     collapsed: new Set(),
+    expanded: new Set(),
   };
   const TABS = [
     ["basics", "builder.basics"],
@@ -306,29 +307,44 @@ export function createBuilder(container, { onChange, getLists } = {}) {
     for (const extra of ft.events || []) {
       if (!events.has(extra)) events.add(extra);
     }
+    const OTHER = "__other__";
     const groups = new Map();
     for (const name of events) {
-      const group = name.split("/")[0] || name;
+      const group = name.includes("/") ? name.split("/")[0] : OTHER;
       if (!groups.has(group)) groups.set(group, []);
       groups.get(group).push(name);
     }
     const q = ui.filters.ftrace.toLowerCase();
     const selected = ft.events || [];
-    for (const [group, names] of [...groups.entries()].sort()) {
+    const ordered = [...groups.entries()].sort((a, b) => {
+      if (a[0] === OTHER) return 1;
+      if (b[0] === OTHER) return -1;
+      return a[0].localeCompare(b[0]);
+    });
+    for (const [group, names] of ordered) {
       const shown = q ? names.filter((n) => n.toLowerCase().includes(q))
                       : names;
       if (!shown.length) continue;
-      const header = el("button", "builder-group",
-                        `${ui.collapsed.has(group) ? "▸" : "▾"} ${group} ` +
-                        `(${names.filter((n) => selected.includes(n)).length}` +
-                        `/${names.length})`);
+      const checked = names.filter((n) => selected.includes(n)).length;
+      const label = group === OTHER ? t("ftrace.other") : group;
+      const expanded = ui.expanded.has(group) ||
+        (checked > 0 && !ui.collapsed.has(group));
+      const header = el("button", "builder-group");
+      header.append(
+        el("span", null, `${expanded ? "▾" : "▸"} ${label}`),
+        el("span", "group-count", `${checked}/${names.length}`));
       header.addEventListener("click", () => {
-        if (ui.collapsed.has(group)) ui.collapsed.delete(group);
-        else ui.collapsed.add(group);
+        if (expanded) {
+          ui.expanded.delete(group);
+          ui.collapsed.add(group);
+        } else {
+          ui.collapsed.delete(group);
+          ui.expanded.add(group);
+        }
         renderBodyOnly();
       });
       wrap.appendChild(header);
-      if (!ui.collapsed.has(group)) {
+      if (expanded) {
         wrap.appendChild(checklist(shown, selected,
           (name, checked) => {
             ft.events = ft.events || [];

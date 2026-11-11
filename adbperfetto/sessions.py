@@ -184,6 +184,7 @@ class _Session:
         self.pull_progress = None
         self.preset_name = ""
         self.model = {}
+        self._config_text = ""
         self.message = "Starting..."
         self.error = None
         self.outputs = []
@@ -316,6 +317,8 @@ class _Session:
             "one_shot": self.one_shot,
             "lifetime_ms": self.lifetime_ms,
             "remote_path": self.remote_path,
+            "buffer_kb": (pbtx.total_buffer_kb(self._config_text)
+                          if self._config_text else 0),
             "mobilelog": mobilelog,
             "stop_requested": self.stop_requested,
             "ended_by_duration": self.ended_by_duration,

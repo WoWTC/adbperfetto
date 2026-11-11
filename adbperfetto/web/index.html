@@ -25,10 +25,11 @@
     <button id="btn-change-dir" class="btn quiet small"
             data-i18n="topbar.change">Change</button>
   </div>
-  <select id="lang-select" class="lang-select" aria-label="Language">
-    <option value="zh">中文</option>
-    <option value="en">English</option>
-  </select>
+  <div class="lang-toggle" role="group" aria-label="Language">
+    <button id="lang-zh" class="lang-btn active">中</button>
+    <span class="lang-sep" aria-hidden="true">|</span>
+    <button id="lang-en" class="lang-btn">EN</button>
+  </div>
   <span id="conn-dot" class="conn-dot" aria-hidden="true"></span>
   <button id="btn-quit" class="btn quiet small"
           data-i18n="topbar.quit">Quit</button>
@@ -36,25 +37,27 @@
 
 <main>
   <section id="view-capture" class="view active">
-    <div id="empty" class="empty hidden">
-      <div id="empty-title" class="empty-title"></div>
-      <div id="empty-text" class="empty-text"></div>
-    </div>
-    <div id="capture-wrap" class="capture-wrap hidden">
+    <div id="capture-wrap" class="capture-wrap">
       <aside id="device-rail" class="rail"></aside>
       <div id="capture-main" class="panel"></div>
     </div>
   </section>
 
   <section id="view-configs" class="view">
-    <div class="configs-wrap">
+    <div id="configs-wrap" class="configs-wrap">
       <aside class="preset-col">
         <div class="preset-head" data-i18n="tab.configs">Configs</div>
         <div id="preset-list" class="preset-list"></div>
+        <button id="btn-import" class="btn quiet small preset-import"
+                data-i18n="cfg.import">Import file</button>
+        <input type="file" id="import-file" class="hidden"
+               accept=".pbtx,.conf,.txt,.cfg">
       </aside>
       <div class="editor-col">
         <div class="editor-toolbar">
-          <span id="parse-status" class="parse-status"></span>
+          <input type="text" id="cfg-name" aria-label="Preset name">
+          <span id="edited-mark" class="edited-mark hidden"></span>
+          <div id="status-pills" class="status-pills"></div>
           <div class="spacer"></div>
           <button id="btn-apply-default" class="btn quiet small"
                   data-i18n="btn.applyDefault">Use in Capture</button>
