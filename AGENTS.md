@@ -6,6 +6,7 @@
 - 运行：`.venv\Scripts\python -m adbperfetto`（仓库根目录）。
 - 测试：`.venv\Scripts\python -m unittest`（仓库根目录）。
 - 真机冒烟：`.venv\Scripts\python tools\device_smoke.py [--serial X] [--mobilelog]`。
+- 打包：`build.bat`（PyInstaller 单文件，产物 `dist\adbperfetto.exe`）。
 
 ## 已验证的设备事实（KN8, Perfetto v49）
 
