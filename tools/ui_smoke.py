@@ -230,16 +230,60 @@ class Smoke:
         after = page.locator(".editor-input").input_value()
         self.check("builder toggle changes text", after != before)
 
+        # editor header: name field + status pills
+        name = page.locator("#cfg-name").input_value()
+        self.check("preset name field", name == "atrace_apps", name)
+        wait_for(lambda: page.locator("#status-pills .pill").count()
+                 >= 3, timeout=10, what="status pills")
+        pills = page.locator("#status-pills .pill")
+        self.check("status pills shown", pills.count() >= 3,
+                   str(pills.count()))
+        ok_cls = pills.first.get_attribute("class") or ""
+        self.check("valid pill", "ok" in ok_cls, ok_cls)
+
+        # set as default via the star
+        row = page.locator(".preset-row",
+                           has=page.locator(
+                               '.preset-item[data-id="launcher3"]'))
+        row.locator(".preset-star").click()
+        wait_for(lambda: http("/api/settings").get("default_preset")
+                 == "launcher3", timeout=10, what="default preset")
+        self.check("set as default", True)
+
         # type a syntax error -> error line + invalid status
         area = page.locator(".editor-input")
         area.click()
         area.press("Control+A")
         area.type("not valid {{{ pbtx")
         page.wait_for_timeout(900)
-        cls = page.locator("#parse-status").get_attribute("class") or ""
-        self.check("syntax error flagged", "bad" in cls, cls)
+        bad = page.locator("#status-pills .pill.bad")
+        self.check("syntax error flagged", bad.count() >= 1)
+        edited = page.locator("#edited-mark").is_visible()
+        self.check("edited marker shown", edited)
         marked = page.locator(".editor-highlight .line-error").count()
         self.check("error line highlighted", marked >= 1, str(marked))
+
+        # import a config file -> draft loads into the editor
+        tmp = Path(os.environ.get("TEMP", ".")) / "ui_smoke_import.pbtx"
+        text = http("/api/presets/syshealth_google")["text"]
+        tmp.write_text(text, encoding="utf-8")
+        page.locator("#import-file").set_input_files(str(tmp))
+        page.wait_for_timeout(900)
+        draft_name = page.locator("#cfg-name").input_value()
+        self.check("import loads draft",
+                   draft_name == "ui_smoke_import", draft_name)
+
+        # Ctrl+S opens save-as and saves the draft as a preset
+        page.locator(".editor-input").click()
+        page.keyboard.press("Control+s")
+        page.wait_for_selector(".modal-overlay.open", timeout=5000)
+        modal_in = page.locator(".modal-body input[type='text']")
+        modal_in.fill("smoke_saved")
+        page.locator(".modal-foot .btn.primary").click()
+        wait_for(lambda: any(p["id"] == "smoke_saved"
+                             for p in http("/api/presets")["presets"]),
+                 timeout=10, what="saved preset")
+        self.check("Ctrl+S saves preset", True)
 
         # restore a valid preset so later screens look sane
         # (editor is dirty -> unsaved-changes confirm appears)
@@ -253,12 +297,14 @@ class Smoke:
         print("language switch")
         page.locator('.topbar-btn[data-view="capture"]').click()
         page.wait_for_timeout(500)
-        page.locator("#lang-select").select_option("en")
+        page.locator("#lang-en").click()
         page.wait_for_timeout(800)
         seg = page.locator(".seg-btn").first.inner_text()
         self.check("English strings applied", seg.strip() == "Record",
                    seg)
-        page.locator("#lang-select").select_option("zh")
+        active = page.locator("#lang-en").get_attribute("class") or ""
+        self.check("EN toggle active", "active" in active, active)
+        page.locator("#lang-zh").click()
         page.wait_for_timeout(600)
 
 
