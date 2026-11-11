@@ -3,6 +3,7 @@
 import argparse
 import json
 import logging
+import os
 import socket
 import sys
 import threading
@@ -103,7 +104,7 @@ def main(argv=None) -> int:
     config.app = app
 
     (data / "instance.json").write_text(
-        json.dumps({"port": port, "pid": __import__("os").getpid()}),
+        json.dumps({"port": port, "pid": os.getpid()}),
         encoding="utf-8")
 
     print(f"adbperfetto {VERSION}")
