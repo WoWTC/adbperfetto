@@ -71,6 +71,25 @@ class ServerTests(unittest.TestCase):
         self.client.post(f"/api/devices/{SERIAL}/stop", json={})
         self.assertTrue(wait_for(lambda: session.status == "done", 10))
 
+    def test_sse_stream_closes_on_quit(self):
+        import threading
+        lines = []
+        finished = threading.Event()
+
+        def reader():
+            try:
+                with self.client.stream("GET", "/api/events") as response:
+                    for line in response.iter_lines():
+                        lines.append(line)
+            finally:
+                finished.set()
+
+        thread = threading.Thread(target=reader, daemon=True)
+        thread.start()
+        self.assertTrue(wait_for(lambda: lines, 5))
+        self.client.post("/api/quit")
+        self.assertTrue(finished.wait(5))
+
     def test_record_unknown_device_404(self):
         response = self.client.post("/api/devices/NOPE/record", json={})
         self.assertEqual(response.status_code, 404)

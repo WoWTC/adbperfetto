@@ -16,6 +16,7 @@ Verified device facts (KN8, Perfetto v49):
   to /data/misc/perfetto-configs/, traces to /data/misc/perfetto-traces/.
 """
 
+import dataclasses
 import logging
 import os
 import queue
@@ -30,7 +31,7 @@ from pathlib import Path
 
 from . import VERSION, pbtx
 from .adb import AdbError
-from .device import probe
+from .device import DeviceInfo, probe
 from .mobilelog import MobileLog, other_log_names
 from . import outputs
 
@@ -198,6 +199,7 @@ class _Session:
         self._mobilelog_running = False
         self.ended_by_duration = False
         self._thread = None
+        self._resumed = False  # monitor thread started in this process
 
     # -- helpers ---------------------------------------------------------
 
@@ -243,12 +245,14 @@ class _Session:
             self.on_change()
 
     def _mark_connected(self):
+        if self._open_disconnect is None and self.connected:
+            return
         if self._open_disconnect is not None:
             self.disconnects.append([self._open_disconnect, time.time()])
             self._open_disconnect = None
-            self.connected = True
-            self._persist()
-            self.on_change()
+        self.connected = True
+        self._persist()
+        self.on_change()
 
     def _fail(self, exc):
         if self.abandoned:
@@ -265,6 +269,8 @@ class _Session:
             "started_at": datetime.fromtimestamp(
                 self.started_at, tz=timezone.utc).isoformat(),
             "model": self.model,
+            "info": (self.info.to_dict() if self.info is not None
+                     else None),
             "preset_name": self.preset_name,
             "remote_path": self.remote_path,
             "remote_config": (CONFIG_RECORD if self.mode == "record"
@@ -324,6 +330,11 @@ class _Session:
         except (KeyError, ValueError):
             self.started_at = time.time()
         self.model = record.get("model", {})
+        info = record.get("info")
+        if info and self.info is None:
+            fields = {f.name for f in dataclasses.fields(DeviceInfo)}
+            self.info = DeviceInfo(
+                **{k: v for k, v in info.items() if k in fields})
         self.preset_name = record.get("preset_name", "")
         self.remote_path = record.get("remote_path", "")
         self.pid = record.get("pid")
@@ -386,6 +397,12 @@ class _Session:
                 self.on_change()
                 return True
             self._mark_disconnected()
+            # Remove the partial download so a directory pull does not
+            # nest <name>/<name> on the next attempt.
+            if local.is_dir():
+                shutil.rmtree(local, ignore_errors=True)
+            else:
+                local.unlink(missing_ok=True)
             self._set_message(
                 f"Pull of {remote.rsplit('/', 1)[-1]} failed; retrying...")
             self._wait(self.retry_interval)
@@ -416,9 +433,12 @@ class RecordSession(_Session):
             raise SessionError(
                 "A recording is already running on this device")
         self.started_at = time.time()
+        # Persist before spawning the worker: a trailing persist could
+        # otherwise overwrite a newer record with a stale snapshot.
+        self._persist()
         self._thread = threading.Thread(target=self._run_new, daemon=True)
         self._thread.start()
-        self._persist()
+        self._resumed = True
 
     def resume(self):
         """Restart the worker thread at the phase matching our status."""
@@ -442,6 +462,7 @@ class RecordSession(_Session):
             target = self._run_resumed
         self._thread = threading.Thread(target=target, daemon=True)
         self._thread.start()
+        self._resumed = True
 
     def adopt(self, remote_path: str, started_at: float):
         """Attach to an orphan detached session found on the device."""
@@ -451,6 +472,7 @@ class RecordSession(_Session):
         self._thread = threading.Thread(target=self._run_resumed,
                                         daemon=True)
         self._thread.start()
+        self._resumed = True
 
     def stop(self):
         self.stop_requested = True
@@ -498,7 +520,16 @@ class RecordSession(_Session):
             self._set_status("recording", "Recording")
             self._monitor_and_finish()
         except Exception as exc:
-            self._fail(exc)
+            message = str(exc)
+            if self.mobilelog is not None and (
+                    self.mobilelog.started
+                    or self.mobilelog.paused_mask):
+                try:
+                    self.mobilelog.stop()
+                except Exception as ml_exc:
+                    message += ("; MobileLog cleanup also failed: "
+                                f"{ml_exc}")
+            self._fail(SessionError(message))
 
     def _run_resumed(self):
         try:
@@ -679,6 +710,7 @@ class FlightSession(_Session):
         self._snap_index = 0
         self.clone = True
         self._one_shot_fired = False
+        self._stop_after_snapshot = False
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -698,8 +730,8 @@ class FlightSession(_Session):
                         "on this device")
         self.started_at = time.time()
         self._snap_index = len(self.snapshots)
-        self._spawn_threads(self._run_new)
         self._persist()
+        self._spawn_threads(self._run_new)
 
     def resume(self):
         if self.status in TERMINAL:
@@ -740,6 +772,7 @@ class FlightSession(_Session):
         self._snap_thread = threading.Thread(target=self._snap_worker,
                                              daemon=True)
         self._snap_thread.start()
+        self._resumed = True
 
     def _find_pid(self):
         try:
@@ -762,17 +795,14 @@ class FlightSession(_Session):
         self._snap_queue.put("snap")
 
     def stop(self, save_snapshot: bool = False):
-        self.stop_requested = True
+        """Non-blocking: a requested final snapshot is queued; the
+        snapshot worker sets stop_requested when it finishes."""
         if save_snapshot and self.status == "recording":
+            self._stop_after_snapshot = True
             self._snap_queue.put("snap")
-            deadline = time.monotonic() + 200
-            while time.monotonic() < deadline:
-                if self._snap_queue.empty() and not self.snapshot_busy:
-                    break
-                time.sleep(0.05)
-            if not self.clone:
-                # One-shot: the snapshot itself ends the session.
-                return
+            self._set_status("stopping", "Saving a final snapshot...")
+            return
+        self.stop_requested = True
         if self.status in ("recording", "stopping"):
             self._set_status("stopping", "Stopping the flight session...")
 
@@ -825,13 +855,15 @@ class FlightSession(_Session):
     def _alive(self) -> bool | None:
         """True = alive, False = gone, None = could not check.
 
-        Uses /proc presence rather than `kill -0`: on the KN8 `kill -0`
-        fails with EPERM for the perfetto process (SELinux domain), while
-        `kill -TERM` works. /proc/<pid> is a reliable liveness check.
+        Greps /proc/<pid>/cmdline rather than `kill -0` or a plain
+        `test -d`: on the KN8 `kill -0` fails with EPERM for the
+        perfetto process (SELinux domain), and matching the cmdline
+        protects against pid reuse after a phone reboot.
         """
         try:
             result = self._shell(
-                f"test -d /proc/{self.pid}; echo ALIVE=$?",
+                f"grep -q {FLIGHT_NAME} /proc/{self.pid}/cmdline "
+                f"2>/dev/null; echo ALIVE=$?",
                 timeout=10)
         except AdbError:
             return None
@@ -947,6 +979,9 @@ class FlightSession(_Session):
                 self._set_message(f"Snapshot failed: {exc}")
             finally:
                 self.snapshot_busy = False
+                if self._stop_after_snapshot:
+                    self._stop_after_snapshot = False
+                    self.stop_requested = True
                 self._persist()
                 self.on_change()
 
@@ -1081,7 +1116,12 @@ class DeviceMonitor:
             entry["last_seen"] = time.time()
         for serial in list(m.devices):
             if serial not in seen:
-                del m.devices[serial]
+                # Keep the entry (marked disconnected) while a session
+                # or orphan still belongs to it, so it stays in the UI.
+                if serial in m.sessions or serial in m.orphans:
+                    m.devices[serial]["state"] = "disconnected"
+                else:
+                    del m.devices[serial]
                 m._probed.discard(serial)
         for serial, state in devices:
             if state != "device" or serial in m._probed:
@@ -1118,9 +1158,10 @@ class SessionManager:
         self._lock = threading.Lock()
         self._changed = threading.Event()
         self._version = 0
-        self.monitor = DeviceMonitor(self)
         self._stop_event = threading.Event()
         self._monitor_thread = None
+        self._load_persisted_sessions()
+        self.monitor = DeviceMonitor(self)
         if autostart:
             self.start_monitor()
 
@@ -1152,6 +1193,10 @@ class SessionManager:
 
     def shutdown(self):
         self._stop_event.set()
+        # Stop worker threads without touching session state; running
+        # sessions persist as-is and resume on the next launch.
+        for session in list(self.sessions.values()):
+            session.abandoned = True
 
     def _output_path(self) -> Path:
         out = (self._output_dir() if callable(self._output_dir)
@@ -1174,6 +1219,30 @@ class SessionManager:
         entry = self.devices.get(serial)
         return entry.get("info") if entry else None
 
+    def _load_persisted_sessions(self):
+        """Rebuild session objects from state records (no threads).
+
+        Loaded sessions show as disconnected and resume when the
+        device returns to `device` state.
+        """
+        for serial, record in list(self._pending.items()):
+            try:
+                flight = record.get("mode") == "flight"
+                cls = FlightSession if flight else RecordSession
+                session = cls(self.adb, serial, info=None,
+                              **self._session_kwargs(flight=flight))
+                session._load_record(record)
+            except Exception as exc:
+                log.warning("Could not load session for %s: %s",
+                            serial, exc)
+                continue
+            session.connected = False
+            self.sessions[serial] = session
+            self.devices.setdefault(serial, {
+                "serial": serial, "state": "disconnected",
+                "info": session.info, "last_seen": 0})
+            self._pending.pop(serial, None)
+
     # -- recovery ------------------------------------------------------------
 
     def _recover(self, serial: str):
@@ -1183,7 +1252,16 @@ class SessionManager:
         except AdbError as exc:
             log.warning("Could not probe %s: %s", serial, exc)
         with self._lock:
-            if serial in self.sessions:
+            session = self.sessions.get(serial)
+            if session is not None:
+                if not session._resumed:
+                    session._resumed = True
+                    if entry.get("info") is not None:
+                        session.info = entry["info"]
+                    session.resume()
+                    log.info(
+                        "[%s] Resumed %s session in state %s",
+                        serial, session.mode, session.status)
                 return
             record = self._pending.pop(serial, None)
             if record is None and self.state_store:
@@ -1204,6 +1282,7 @@ class SessionManager:
                 **self._session_kwargs())
         session._load_record(record)
         self.sessions[serial] = session
+        session._resumed = True
         session.resume()
         log.info("[%s] Resumed %s session in state %s",
                  serial, session.mode, session.status)
@@ -1394,6 +1473,17 @@ class SessionManager:
                 "info": info.to_dict() if info else None,
                 "orphan": self.orphans.get(serial),
                 "session": session.api_dict() if session else None,
+            })
+        for serial, session in self.sessions.items():
+            if serial in self.devices:
+                continue
+            info = session.info
+            devices.append({
+                "serial": serial,
+                "state": "disconnected",
+                "info": info.to_dict() if info else None,
+                "orphan": self.orphans.get(serial),
+                "session": session.api_dict(),
             })
         return {
             "version": VERSION,

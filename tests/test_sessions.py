@@ -1,3 +1,4 @@
+import re
 import tempfile
 import time
 import unittest
@@ -94,7 +95,7 @@ def make_record_adb():
     return adb
 
 
-def make_flight_adb(query=QUERY_EMPTY):
+def make_flight_adb(query=QUERY_EMPTY, clone_delay=0.0):
     adb = FakeAdb()
     adb.alive = 0
     adb.pushed = []
@@ -123,6 +124,8 @@ def make_flight_adb(query=QUERY_EMPTY):
 
     @adb.on(r"--clone-by-name")
     def _clone(ctx):
+        if clone_delay:
+            time.sleep(clone_delay)
         return Result(0, "", "Wrote 1234 bytes into /data/...")
 
     @adb.on(r"kill -TERM")
@@ -314,6 +317,149 @@ class RecordSessionTests(unittest.TestCase):
             self.assertTrue(wait_for(
                 lambda: resumed.status == "done", 10))
 
+    def test_mobilelog_cleanup_when_start_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            adb = FakeAdb()
+            adb.mb_running = "0"
+            adb.other_mask = 22
+            adb.broadcasts = []
+
+            @adb.on(r"perfetto --is_detached")
+            def _detached(ctx):
+                return Result(2, "", "")
+
+            @adb.on(r"pm path com\.debug\.loggerui")
+            def _pm(ctx):
+                return Result(0, "package:/x\n", "")
+
+            @adb.on(r"getprop vendor\.MB\.running")
+            def _mb_running(ctx):
+                return Result(0, adb.mb_running + "\n", "")
+
+            @adb.on(r"getprop vendor\.MB\.realpath")
+            def _mb_path(ctx):
+                return Result(
+                    0, "/data/debuglogger/mobilelog/APLog_test\n", "")
+
+            @adb.on(r"dumpsys notification")
+            def _dumpsys(ctx):
+                names = [name for name, bit in
+                         (("Modem", 2), ("Network", 4), ("GPSHost", 16))
+                         if adb.other_mask & bit]
+                text = (",".join(names) + " Log are on.") if names \
+                    else "Warning : All logs are stopped!!!"
+                return Result(
+                    0, "NotificationRecord(x pkg=com.debug.loggerui)\n"
+                       f"  android.bigText=String ({text})\n", "")
+
+            @adb.on(r"am broadcast")
+            def _broadcast(ctx):
+                command = ctx["command"]
+                name = re.search(r"cmd_name (\S+)", command).group(1)
+                match = re.search(r"cmd_target (\d+)", command)
+                target = int(match.group(1)) if match else 1
+                adb.broadcasts.append((name, target))
+                if name == "start" and target == 1:
+                    adb.mb_running = "1"
+                elif name == "stop" and target == 1:
+                    adb.mb_running = "0"
+                elif name == "stop":
+                    adb.other_mask &= ~target
+                elif name == "start":
+                    adb.other_mask |= target
+                return Result(0, "", "")
+
+            @adb.on(r"ls -1 /data/debuglogger")
+            def _ls(ctx):
+                return Result(0, "APLog_test\n", "")
+
+            @adb.on(r"cat > ")
+            def _push(ctx):
+                return Result(0, "", "")
+
+            @adb.on(r"perfetto --txt -c .* --detach=")
+            def _launch(ctx):
+                return Result(1, "", "boom")
+
+            session = RecordSession(**record_kwargs(tmp, adb))
+            session.start(CONFIG, "test", 60000, mobilelog=True)
+            self.assertTrue(wait_for(
+                lambda: session.status == "failed", 10))
+            session._thread.join(timeout=5)  # let the worker finish
+            self.assertIn("boom", session.error)
+            # Cleanup: MobileLog stopped and paused logs restored.
+            self.assertIn(("stop", 1), adb.broadcasts)
+            self.assertIn(("start", 22), adb.broadcasts)
+            self.assertTrue(session.mobilelog.logs_restored)
+
+    def test_mobilelog_cleanup_when_prepare_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            adb = FakeAdb()
+            adb.other_mask = 4
+            adb.broadcasts = []
+
+            @adb.on(r"perfetto --is_detached")
+            def _detached(ctx):
+                return Result(2, "", "")
+
+            @adb.on(r"dumpsys notification")
+            def _dumpsys(ctx):
+                text = ("Network Log is on." if adb.other_mask & 4
+                        else "Warning : All logs are stopped!!!")
+                return Result(
+                    0, "NotificationRecord(x pkg=com.debug.loggerui)\n"
+                       f"  android.bigText=String ({text})\n", "")
+
+            @adb.on(r"am broadcast")
+            def _broadcast(ctx):
+                command = ctx["command"]
+                name = re.search(r"cmd_name (\S+)", command).group(1)
+                match = re.search(r"cmd_target (\d+)", command)
+                target = int(match.group(1)) if match else 1
+                adb.broadcasts.append((name, target))
+                if name == "stop" and target != 1:
+                    adb.other_mask &= ~target
+                elif name == "start" and target != 1:
+                    adb.other_mask |= target
+                return Result(0, "", "")
+
+            @adb.on(r"pm path com\.debug\.loggerui")
+            def _pm(ctx):
+                return Result(1, "", "")  # prepare fails here
+
+            session = RecordSession(**record_kwargs(tmp, adb))
+            session.start(CONFIG, "test", 60000, mobilelog=True)
+            self.assertTrue(wait_for(
+                lambda: session.status == "failed", 10))
+            session._thread.join(timeout=5)  # let the worker finish
+            # The Network log paused during prepare() is restored.
+            self.assertIn(("start", 4), adb.broadcasts)
+            self.assertTrue(session.mobilelog.logs_restored)
+
+    def test_directory_pull_retry_removes_partial(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            adb = FakeAdb()
+            session = RecordSession(**record_kwargs(tmp, adb))
+            local = Path(tmp) / "out" / "APLog_x"
+            attempts = []
+
+            @adb.on(r"APLog_x")
+            def _pull(ctx):
+                attempts.append(1)
+                dest = ctx["local"]
+                if len(attempts) == 1:
+                    (dest / "APLog_x").mkdir(parents=True)
+                    (dest / "APLog_x" / "junk.txt").write_bytes(b"x")
+                    return Result(1, "", "pull failed")
+                dest.mkdir(parents=True, exist_ok=True)
+                (dest / "main.txt").write_bytes(b"ok")
+                return Result(0, "", "")
+
+            self.assertTrue(session._pull_with_retry(
+                "/data/debuglogger/mobilelog/APLog_x", local))
+            self.assertFalse((local / "APLog_x").exists())
+            self.assertTrue((local / "main.txt").exists())
+
 
 class FlightSessionTests(unittest.TestCase):
     def test_clone_snapshot_and_stop(self):
@@ -369,6 +515,22 @@ class FlightSessionTests(unittest.TestCase):
             adb.alive = 0  # process died on its own
             self.assertTrue(wait_for(lambda: session.status == "ended", 10))
 
+    def test_stop_with_final_snapshot_nonblocking(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            adb = make_flight_adb(clone_delay=0.5)
+            session = FlightSession(**record_kwargs(tmp, adb))
+            session.start(CONFIG, "test", 600000)
+            self.assertTrue(wait_for(
+                lambda: session.status == "recording"))
+            start = time.monotonic()
+            session.stop(save_snapshot=True)
+            self.assertLess(time.monotonic() - start, 0.3)
+            self.assertEqual(session.status, "stopping")
+            self.assertTrue(wait_for(
+                lambda: len(session.snapshots) == 1, 10))
+            self.assertTrue(wait_for(
+                lambda: session.status == "done", 10))
+
 
 class ManagerTests(unittest.TestCase):
     def test_device_appears_and_probe(self):
@@ -419,6 +581,7 @@ class ManagerTests(unittest.TestCase):
                 lambda: session.status == "recording"))
             # Simulate a restart: new manager loads the persisted record.
             adb.device_list = [(SERIAL, "device")]
+            session.abandoned = True  # quiet the original worker
             manager = SessionManager(**manager_kwargs(tmp, adb))
             try:
                 self.assertTrue(wait_for(
@@ -426,6 +589,9 @@ class ManagerTests(unittest.TestCase):
                 resumed = manager.sessions[SERIAL]
                 self.assertTrue(wait_for(
                     lambda: resumed.status == "recording"))
+                manager.stop(SERIAL)
+                self.assertTrue(wait_for(
+                    lambda: resumed.status == "done", 10))
             finally:
                 manager.shutdown()
 
@@ -478,6 +644,84 @@ class ManagerTests(unittest.TestCase):
                 manager.stop(SERIAL)
                 self.assertTrue(wait_for(
                     lambda: session.status == "done", 10))
+            finally:
+                manager.shutdown()
+
+    def test_unplugged_device_kept_when_session_active(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            adb = make_record_adb()
+            adb.device_list = [(SERIAL, "device")]
+            manager = SessionManager(**manager_kwargs(tmp, adb))
+            try:
+                self.assertTrue(wait_for(
+                    lambda: SERIAL in manager.devices
+                    and manager.devices[SERIAL]["info"] is not None))
+                session = manager.start_record(SERIAL, CONFIG, "test",
+                                               60000)
+                self.assertTrue(wait_for(
+                    lambda: session.status == "recording"))
+                adb.offline = True
+                adb.device_list = []
+                self.assertTrue(wait_for(
+                    lambda: manager.devices.get(SERIAL, {})
+                    .get("state") == "disconnected", 10))
+                snap = manager.snapshot()
+                device = next(d for d in snap["devices"]
+                              if d["serial"] == SERIAL)
+                self.assertEqual(device["session"]["status"],
+                                 "recording")
+                self.assertFalse(device["session"]["connected"])
+                # Plug back in.
+                adb.offline = False
+                adb.device_list = [(SERIAL, "device")]
+                self.assertTrue(wait_for(
+                    lambda: manager.devices[SERIAL]["state"] == "device",
+                    10))
+                manager.stop(SERIAL)
+                self.assertTrue(wait_for(
+                    lambda: session.status == "done", 10))
+            finally:
+                manager.shutdown()
+
+    def test_persisted_session_visible_offline_and_resumes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            adb = make_record_adb()
+            store = StateStore(Path(tmp) / "state.json")
+            session = RecordSession(
+                **{**record_kwargs(tmp, adb), "state_store": store})
+            session.start(CONFIG, "test", 60000)
+            self.assertTrue(wait_for(
+                lambda: session.status == "recording"))
+            record = store.get(SERIAL)
+            self.assertEqual(record["info"]["model"], "Test Phone")
+            session.abandoned = True  # stop the old worker
+            # Restart the app while the phone is unplugged.
+            adb.offline = True
+            kwargs = manager_kwargs(tmp, adb)
+            kwargs["state_store"] = store
+            manager = SessionManager(**kwargs)
+            try:
+                loaded = manager.sessions[SERIAL]
+                self.assertFalse(loaded.connected)
+                self.assertIsNotNone(loaded.info)
+                self.assertEqual(loaded.info.model, "Test Phone")
+                self.assertEqual(manager.devices[SERIAL]["state"],
+                                 "disconnected")
+                snap = manager.snapshot()
+                device = next(d for d in snap["devices"]
+                              if d["serial"] == SERIAL)
+                self.assertEqual(device["session"]["status"],
+                                 "recording")
+                self.assertFalse(device["session"]["connected"])
+                # Plug the phone back in: the session resumes.
+                adb.offline = False
+                adb.device_list = [(SERIAL, "device")]
+                self.assertTrue(wait_for(
+                    lambda: loaded.status == "recording"
+                    and loaded.connected, 10))
+                manager.stop(SERIAL)
+                self.assertTrue(wait_for(
+                    lambda: loaded.status == "done", 10))
             finally:
                 manager.shutdown()
 
