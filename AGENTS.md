@@ -6,7 +6,10 @@
 - 运行：`.venv\Scripts\python -m adbperfetto`（仓库根目录）。
 - 测试：`.venv\Scripts\python -m unittest`（仓库根目录）。
 - 真机冒烟：`.venv\Scripts\python tools\device_smoke.py [--serial X] [--mobilelog]`。
+- 真机端到端：`.venv\Scripts\python tools\device_e2e.py`（录制+MobileLog+断连、杀进程恢复、时长结束、飞行快照、orphan 接管）。
+- 演示模式（无需手机，模拟设备）：`set ADBPERFETTO_DEMO=1` 后运行；UI 冒烟 `tools\ui_smoke.py`，截图 `tools\ui_screenshots.py`（Playwright 使用本机 Edge，`channel="msedge"`，不要 `playwright install`）。
 - 打包：`build.bat`（PyInstaller 单文件，产物 `dist\adbperfetto.exe`）。
+- UI 设计约束：颜色即状态码（cyan=用户输入/选中，live 绿=录制/连接，amber=警示/断开，red=错误，orange=每屏唯一主按钮），等宽字体仅用于编辑器和文件路径。
 
 ## 已验证的设备事实（KN8, Perfetto v49）
 
@@ -15,4 +18,6 @@
 - perfetto v49 没有 `--cancel` 标志。
 - 配置文件只能放 `/data/misc/perfetto-configs/`（SELinux 不允许读 /data/local/tmp）；trace 输出到 `/data/misc/perfetto-traces/`。
 - flight 模式：`perfetto --txt -c <cfg> -o <base> --background-wait` 在 stdout 打印 pid；`perfetto --clone-by-name <name> -o <file>` 同步写快照；`trigger_perfetto <name>` 异步生成 `<base>.0/.1`；`kill -TERM <pid>` 结束会话。
+- `kill -0 <pid>` 对 perfetto 进程返回 EPERM（SELinux），存活判断用 `grep -q adbperfetto_flight /proc/<pid>/cmdline`。
+- 测试断连时单纯 `adb kill-server` 维持不住断开（下一条 adb 命令会自动重启 daemon），device_e2e 通过占用 5037 端口模拟 PC 侧失联。
 - MobileLog：shell 无权 rm mobilelog 文件，需用 DebugLoggerUI 的 `cmd_name clear_all_logs` 清理；状态看 `getprop vendor.MB.running` / `vendor.MB.realpath`；`cmd_target` 位掩码 1=Mobile、2=Modem、4=Network、16=GPSHost；Modem/Network/GPSHost 没有状态属性，只能解析 DebugLoggerUI 通知的 `android.bigText`。
