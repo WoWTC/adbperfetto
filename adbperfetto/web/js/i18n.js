@@ -169,6 +169,8 @@ const zh = {
   "help.body": "S  保存快照（飞行记录）\n1-9  选择手机\nEsc  关闭对话框",
   "outdir.label": "保存到",
   "outdir.changePrompt": "新的输出文件夹（留空则使用默认位置）",
+  "theme.toLight": "切换到浅色主题",
+  "theme.toDark": "切换到深色主题",
 };
 
 const en = {
@@ -340,6 +342,8 @@ const en = {
   "help.body": "S  Save snapshot (flight recorder)\n1-9  Select device\nEsc  Close dialog",
   "outdir.label": "Save to",
   "outdir.changePrompt": "New output folder (leave empty for the default)",
+  "theme.toLight": "Switch to light theme",
+  "theme.toDark": "Switch to dark theme",
 };
 
 const DICTS = { zh, en };

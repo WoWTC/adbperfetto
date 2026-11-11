@@ -132,6 +132,72 @@ function anyModalOpen() {
   return $("#modal-overlay").classList.contains("open");
 }
 
+// ------------------------------------------------------------------ theme
+
+const THEME_KEY = "adbperfetto.theme";
+const themeMedia = window.matchMedia &&
+  window.matchMedia("(prefers-color-scheme: light)");
+let themeMode = "auto";   // auto | light | dark
+
+const ICON_SUN = '<svg viewBox="0 0 24 24" fill="none" ' +
+  'stroke="currentColor" stroke-width="2" stroke-linecap="round">' +
+  '<circle cx="12" cy="12" r="4"/>' +
+  '<path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4' +
+  'M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
+const ICON_MOON = '<svg viewBox="0 0 24 24" fill="none" ' +
+  'stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+  'stroke-linejoin="round">' +
+  '<path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg>';
+
+function effectiveTheme() {
+  if (themeMode === "light" || themeMode === "dark") return themeMode;
+  return themeMedia && themeMedia.matches ? "light" : "dark";
+}
+
+function applyTheme() {
+  const eff = effectiveTheme();
+  document.documentElement.setAttribute("data-theme", eff);
+  const btn = $("#btn-theme");
+  if (!btn) return;
+  btn.innerHTML = eff === "dark" ? ICON_SUN : ICON_MOON;
+  const label = t(eff === "dark" ? "theme.toLight" : "theme.toDark");
+  btn.setAttribute("aria-label", label);
+  btn.title = label;
+}
+
+function initTheme() {
+  try {
+    const stored = localStorage.getItem(THEME_KEY);
+    if (stored === "light" || stored === "dark" || stored === "auto") {
+      themeMode = stored;
+    }
+  } catch (e) { /* keep auto */ }
+  applyTheme();
+  if (themeMedia && themeMedia.addEventListener) {
+    themeMedia.addEventListener("change", () => {
+      if (themeMode === "auto") applyTheme();
+    });
+  }
+}
+
+function reconcileTheme(serverTheme) {
+  // An explicit server setting always wins; a stored explicit value
+  // beats the server default "auto" so the no-flash pick survives.
+  if (serverTheme && serverTheme !== "auto" || themeMode === "auto") {
+    themeMode = serverTheme || "auto";
+  }
+  try { localStorage.setItem(THEME_KEY, themeMode); } catch (e) {}
+  applyTheme();
+}
+
+async function toggleTheme() {
+  themeMode = effectiveTheme() === "dark" ? "light" : "dark";
+  try { localStorage.setItem(THEME_KEY, themeMode); } catch (e) {}
+  applyTheme();
+  try { app.settings = await api.putSettings({ theme: themeMode }); }
+  catch (e) { toast(e.message); }
+}
+
 // ------------------------------------------------------------------ i18n
 
 function applyStaticStrings() {
@@ -140,6 +206,7 @@ function applyStaticStrings() {
   });
   document.documentElement.lang = getLang() === "zh" ? "zh-CN" : "en";
   $("#out-path-label").textContent = t("outdir.label");
+  applyTheme();
   markDirty(app.editorDirty);
   document.title = app.capture ? app.capture.pageTitle()
                                : t("title.default");
@@ -584,6 +651,7 @@ function bindStatic() {
   $("#btn-quit").addEventListener("click", quitApp);
   $("#lang-zh").addEventListener("click", () => switchLang("zh"));
   $("#lang-en").addEventListener("click", () => switchLang("en"));
+  $("#btn-theme").addEventListener("click", toggleTheme);
   $("#btn-open-dir").addEventListener("click", async () => {
     try { await api.openDir(); }
     catch (e) { toast(e.message); }
@@ -649,6 +717,7 @@ function bindStatic() {
 
 async function boot() {
   setLang(resolveLang("auto"));
+  initTheme();
   bindStatic();
   initConfigs();
   app.capture = createCapture({
@@ -674,6 +743,7 @@ async function boot() {
       api.settings(), api.presets(), api.outputs(), api.builtinLists(),
     ]);
     app.settings = settings;
+    reconcileTheme(settings.theme);
     if (settings.language && settings.language !== "auto") {
       setLang(resolveLang(settings.language));
     }

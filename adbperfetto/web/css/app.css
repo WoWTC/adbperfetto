@@ -3,6 +3,7 @@
 :root {
   --glass: #0F1923;
   --panel: #152230;
+  --panel-2: #1D2E3F;
   --rule: #25384A;
   --scale: #DCE6EE;
   --dim: #7E93A6;
@@ -11,8 +12,30 @@
   --amber: #FFB020;
   --alert: #FF4D5E;
   --recorder: #FF5A1F;
+  --on-fill: #FFFFFF;
+  --backdrop: rgba(7, 12, 17, 0.66);
+  --shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  color-scheme: dark;
   --font: "Bahnschrift", "Microsoft YaHei UI", "Segoe UI", sans-serif;
   --mono: "Cascadia Mono", Consolas, "Microsoft YaHei UI", monospace;
+}
+
+:root[data-theme="light"] {
+  --glass: #EEF2F5;
+  --panel: #FFFFFF;
+  --panel-2: #E3EAF0;
+  --rule: #D3DCE4;
+  --scale: #14212C;
+  --dim: #5B6F81;
+  --cyan: #0A7686;
+  --live: #127A46;
+  --amber: #9A5B00;
+  --alert: #C8283A;
+  --recorder: #D1440A;
+  --on-fill: #FFFFFF;
+  --backdrop: rgba(20, 33, 44, 0.35);
+  --shadow: 0 12px 32px rgba(20, 33, 44, 0.18);
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -107,6 +130,18 @@ button:disabled { opacity: 0.45; cursor: default; }
   text-align: left;
 }
 
+.icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 8px;
+}
+.icon-btn svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+}
+
 .lang-toggle {
   display: flex;
   align-items: center;
@@ -139,7 +174,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 .btn.primary {
   background: var(--recorder);
   border-color: var(--recorder);
-  color: #FFF;
+  color: var(--on-fill);
   font-weight: 600;
 }
 .btn.primary:hover:not(:disabled) { filter: brightness(1.1); }
@@ -154,7 +189,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 .btn.alert {
   background: var(--alert);
   border-color: var(--alert);
-  color: #FFF;
+  color: var(--on-fill);
 }
 .btn-row { display: flex; gap: 10px; align-items: center; }
 
@@ -382,7 +417,7 @@ main { height: calc(100vh - 48px); overflow: hidden; }
   font-family: var(--font);
   font-size: 11px;
 }
-.tape-playhead-chip { fill: var(--panel); }
+.tape-playhead-chip { fill: var(--panel-2); }
 
 /* ---------------------------------------------------------------- readouts */
 
@@ -685,7 +720,7 @@ main { height: calc(100vh - 48px); overflow: hidden; }
 }
 .editor-highlight div { height: 18px; }
 .editor-highlight div.line-error {
-  background: rgba(255, 77, 94, 0.14);
+  background: color-mix(in srgb, var(--alert) 14%, transparent);
   margin: 0 -12px;
   padding: 0 12px;
 }
@@ -713,7 +748,7 @@ main { height: calc(100vh - 48px); overflow: hidden; }
 }
 .editor-input:focus { outline: none; border: none; }
 .editor-input::selection {
-  background: rgba(67, 207, 224, 0.25);
+  background: color-mix(in srgb, var(--cyan) 25%, transparent);
   color: transparent;
 }
 
@@ -807,7 +842,7 @@ main { height: calc(100vh - 48px); overflow: hidden; }
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(7, 12, 17, 0.66);
+  background: var(--backdrop);
   display: none;
   align-items: center;
   justify-content: center;
@@ -818,7 +853,7 @@ main { height: calc(100vh - 48px); overflow: hidden; }
   background: var(--panel);
   border: 1px solid var(--rule);
   border-radius: 5px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--shadow);
   width: 440px;
   max-width: calc(100vw - 40px);
   max-height: calc(100vh - 80px);
