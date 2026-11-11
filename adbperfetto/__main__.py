@@ -6,6 +6,7 @@ import logging
 import os
 import socket
 import sys
+import tempfile
 import threading
 import urllib.request
 import webbrowser
@@ -68,39 +69,58 @@ def main(argv=None) -> int:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     log = logging.getLogger("adbperfetto")
 
-    data = paths.data_dir()
-    existing = _existing_instance(data)
-    if existing is not None:
-        url = f"http://127.0.0.1:{existing}"
-        print(f"adbperfetto is already running at {url}")
-        webbrowser.open(url)
-        return 0
+    demo = os.environ.get("ADBPERFETTO_DEMO") == "1"
+    if demo:
+        data = Path(tempfile.mkdtemp(prefix="adbperfetto_demo_"))
+        demo_output = data / "traces"
+    else:
+        data = paths.data_dir()
+        existing = _existing_instance(data)
+        if existing is not None:
+            url = f"http://127.0.0.1:{existing}"
+            print(f"adbperfetto is already running at {url}")
+            webbrowser.open(url)
+            return 0
 
     settings = Settings(data)
     presets = PresetStore(paths.resource_dir() / "presets",
                           data / "presets")
     state = StateStore(data / "state.json")
-    try:
-        adb = Adb()
-    except AdbError as exc:
-        log.warning("%s", exc)
-        adb = None
+    if demo:
+        from .demo import DemoAdb
+        adb = DemoAdb()
 
-    def output_dir() -> Path:
-        configured = settings.output_dir
-        if configured:
-            return Path(configured)
-        return paths.default_output_dir()
+        def output_dir() -> Path:
+            return demo_output
+    else:
+        try:
+            adb = Adb()
+        except AdbError as exc:
+            log.warning("%s", exc)
+            adb = None
 
-    manager = SessionManager(adb, state, settings, output_dir)
+        def output_dir() -> Path:
+            configured = settings.output_dir
+            if configured:
+                return Path(configured)
+            return paths.default_output_dir()
+
+    intervals = dict(poll_interval=0.5, flight_poll_interval=0.5,
+                     monitor_interval=0.5, retry_interval=1.0,
+                     progress_interval=0.2) if demo else {}
+    manager = SessionManager(adb, state, settings, output_dir, **intervals)
     port = _find_free_port(args.port)
     url = f"http://127.0.0.1:{port}"
 
+    shutdown_event = threading.Event()
     config = uvicorn.Config(app=None, host="127.0.0.1", port=port,
-                            log_level="warning")
+                            log_level="warning",
+                            timeout_graceful_shutdown=3)
     server = uvicorn.Server(config)
     app = create_app(manager, presets, settings,
-                     quit_hook=lambda: setattr(server, "should_exit", True))
+                     quit_hook=lambda: setattr(server, "should_exit", True),
+                     shutdown_event=shutdown_event,
+                     demo_adb=adb if demo else None)
     config.app = app
 
     (data / "instance.json").write_text(
@@ -108,6 +128,11 @@ def main(argv=None) -> int:
         encoding="utf-8")
 
     print(f"adbperfetto {VERSION}")
+    if demo:
+        print("DEMO MODE (ADBPERFETTO_DEMO=1) - simulated devices, "
+              "no real adb")
+        print(f"Demo data: {data}")
+        print(f"Demo output: {demo_output}")
     print(f"Web UI: {url}")
     print("Keep this window open while capturing. Close it to quit; "
           "recordings on the phone keep running and resume next time.")
@@ -119,6 +144,7 @@ def main(argv=None) -> int:
     except KeyboardInterrupt:
         pass
     finally:
+        shutdown_event.set()
         manager.shutdown()
         try:
             (data / "instance.json").unlink(missing_ok=True)

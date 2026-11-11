@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import threading
 import time
 from pathlib import Path
 
@@ -75,9 +76,12 @@ def _http_error(exc: Exception) -> HTTPException:
     return HTTPException(400, str(exc))
 
 
-def create_app(manager, presets, settings, quit_hook=None) -> FastAPI:
+def create_app(manager, presets, settings, quit_hook=None,
+               shutdown_event=None, demo_adb=None) -> FastAPI:
     app = FastAPI(title="adbperfetto", version=VERSION)
     app.state.quit_hook = quit_hook
+    app.state.shutdown_event = shutdown_event or threading.Event()
+    app.state.demo_adb = demo_adb
 
     def call(fn, *args, **kwargs):
         try:
@@ -107,7 +111,7 @@ def create_app(manager, presets, settings, quit_hook=None) -> FastAPI:
             last_version = -1
             last_send = 0.0
             last_heartbeat = time.monotonic()
-            while True:
+            while not app.state.shutdown_event.is_set():
                 snap = await asyncio.to_thread(manager.snapshot)
                 now = time.monotonic()
                 if manager.version != last_version or now - last_send >= 1.0:
@@ -282,13 +286,64 @@ def create_app(manager, presets, settings, quit_hook=None) -> FastAPI:
         call(outputs.open_dir, manager._output_path())
         return {"ok": True}
 
+    # -- demo controls (only when running on the in-memory DemoAdb) ---------
+
+    if demo_adb is not None:
+        class DemoBody(BaseModel):
+            serial: str | None = None
+            state: str | None = None
+            mode: str | None = None
+
+        @app.post("/api/demo/unplug")
+        def demo_unplug(body: DemoBody):
+            call(demo_adb.unplug, body.serial)
+            manager._bump()
+            return {"ok": True}
+
+        @app.post("/api/demo/replug")
+        def demo_replug(body: DemoBody):
+            call(demo_adb.replug, body.serial)
+            manager._bump()
+            return {"ok": True}
+
+        @app.post("/api/demo/state")
+        def demo_state(body: DemoBody):
+            call(demo_adb.set_state, body.serial, body.state)
+            manager._bump()
+            return {"ok": True}
+
+        @app.post("/api/demo/remove_all")
+        def demo_remove_all():
+            call(demo_adb.remove_all)
+            manager._bump()
+            return {"ok": True}
+
+        @app.post("/api/demo/fail_next")
+        def demo_fail_next(body: DemoBody):
+            call(demo_adb.fail_next_start, body.serial)
+            manager._bump()
+            return {"ok": True}
+
+        @app.post("/api/demo/orphan")
+        def demo_orphan(body: DemoBody):
+            call(demo_adb.plant_orphan, body.serial,
+                 body.mode or "record")
+            manager._bump()
+            return {"ok": True}
+
+        @app.post("/api/demo/reset")
+        def demo_reset():
+            call(demo_adb.reset)
+            manager._bump()
+            return {"ok": True}
+
     # -- quit -------------------------------------------------------------------
 
     @app.post("/api/quit")
     def quit_app():
+        app.state.shutdown_event.set()
         hook = app.state.quit_hook
         if hook:
-            import threading
             threading.Timer(0.3, hook).start()
         return {"ok": True}
 
