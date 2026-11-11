@@ -102,6 +102,11 @@ _SETTINGS_DEFAULTS = {
     "output_dir": "",
     "language": "auto",
     "flight_lifetime_h": 24,
+    "theme": "auto",
+}
+
+_SETTING_CHOICES = {
+    "theme": ("auto", "light", "dark"),
 }
 
 
@@ -127,8 +132,13 @@ class Settings:
 
     def update(self, partial: dict):
         for key, value in partial.items():
-            if key in _SETTINGS_DEFAULTS:
-                self._data[key] = value
+            if key not in _SETTINGS_DEFAULTS:
+                continue
+            choices = _SETTING_CHOICES.get(key)
+            if choices and value not in choices:
+                raise ValueError(
+                    f"Invalid {key}: {value!r} (one of {choices})")
+            self._data[key] = value
         tmp = self.path.with_name(
             f"{self.path.name}.{os.getpid()}.tmp")
         tmp.write_text(json.dumps(self._data, indent=2), encoding="utf-8")

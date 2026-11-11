@@ -76,11 +76,22 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual(settings.output_dir, "")
             self.assertEqual(settings.language, "auto")
             self.assertEqual(settings.flight_lifetime_h, 24)
+            self.assertEqual(settings.theme, "auto")
             settings.update({"output_dir": "D:/x", "unknown_key": 1})
             self.assertEqual(settings.output_dir, "D:/x")
             self.assertNotIn("unknown_key", settings.to_dict())
             reloaded = Settings(tmp)
             self.assertEqual(reloaded.output_dir, "D:/x")
+
+    def test_theme_setting(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = Settings(tmp)
+            self.assertEqual(settings.theme, "auto")
+            settings.update({"theme": "light"})
+            self.assertEqual(Settings(tmp).theme, "light")
+            for bad in ("blue", "", None, 1):
+                with self.assertRaises(ValueError):
+                    settings.update({"theme": bad})
 
 
 if __name__ == "__main__":
