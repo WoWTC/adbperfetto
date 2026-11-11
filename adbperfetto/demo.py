@@ -380,9 +380,10 @@ class DemoAdb:
             kb = int((time.time() - dev.mb_started) * LOG_RATE_KBS) \
                 if dev.mb_running == "1" else 128
             for name, text in (
-                    ("mobile.log", b"M" * min(kb * 1024, 4_000_000)),
-                    ("kernel.log", b"K" * 65_536),
-                    ("main_log", b"L" * 262_144)):
+                    ("main_log", b"M" * min(kb * 1024, 4_000_000)),
+                    ("kernel_log", b"K" * 65_536),
+                    ("sys_log", b"S" * 131_072),
+                    ("events_log", b"E" * 65_536)):
                 (local / name).write_bytes(text)
             return Result(0, f"{remote}: 1 file pulled", "")
         if remote == dev.record_remote and dev.detached == 0:
