@@ -1,0 +1,623 @@
+// app.js: shell — header, views, SSE, modals, shortcuts.
+
+import { api, events } from "./api.js";
+import { t, setLang, getLang, resolveLang } from "./i18n.js";
+import { createEditor } from "./editor.js";
+import { createBuilder } from "./builder.js";
+import { createCapture } from "./capture.js";
+
+const $ = (sel) => document.querySelector(sel);
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+const app = {
+  state: null,
+  settings: {},
+  presets: [],
+  builtin: { atrace: [], ftrace: [] },
+  deviceLists: {},          // serial -> {atrace, ftrace, fromDevice}
+  outputs: [],
+  view: "capture",
+  selected: null,
+  prefsCache: {},
+  draft: null,              // {text, name}
+  editor: null,
+  builder: null,
+  capture: null,
+  editorModel: null,
+  editorValid: true,
+  editorDirty: false,
+  loadedPresetId: null,
+  parseTimer: null,
+  lastSeenError: "",
+};
+
+// ------------------------------------------------------------------ prefs
+
+function prefsKey(serial) {
+  return `adbperfetto.prefs.${serial}`;
+}
+
+function getPrefs(serial) {
+  if (!app.prefsCache[serial]) {
+    try {
+      app.prefsCache[serial] =
+        JSON.parse(localStorage.getItem(prefsKey(serial))) || {};
+    } catch (e) { app.prefsCache[serial] = {}; }
+  }
+  return app.prefsCache[serial];
+}
+
+function setPrefs(serial, patch) {
+  const p = getPrefs(serial);
+  Object.assign(p, patch);
+  app.prefsCache[serial] = p;
+  localStorage.setItem(prefsKey(serial), JSON.stringify(p));
+}
+
+// ------------------------------------------------------------------ toast
+
+function toast(msg) {
+  const host = $("#toast");
+  host.textContent = msg;
+  host.classList.add("show");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => host.classList.remove("show"), 3000);
+}
+
+// ------------------------------------------------------------------ modal
+
+function showModal({ title, body, bodyHtml, buttons, wide }) {
+  const overlay = $("#modal-overlay");
+  overlay.textContent = "";
+  const box = el("div", "modal" + (wide ? " wide" : ""));
+  const head = el("div", "modal-head");
+  head.appendChild(el("div", "modal-title", title));
+  const x = el("button", "modal-x", "✕");
+  head.appendChild(x);
+  box.appendChild(head);
+  const content = el("div", "modal-body");
+  if (bodyHtml) content.innerHTML = bodyHtml;
+  else if (typeof body === "string") content.textContent = body;
+  else if (body) content.appendChild(body);
+  box.appendChild(content);
+  const foot = el("div", "modal-foot");
+  for (const [label, fn, cls] of buttons || []) {
+    const b = el("button", "btn " + (cls || "quiet"), label);
+    b.addEventListener("click", () => fn(close));
+    foot.appendChild(b);
+  }
+  box.appendChild(foot);
+  overlay.appendChild(box);
+  overlay.classList.add("open");
+  function close() {
+    overlay.classList.remove("open");
+    overlay.textContent = "";
+    document.removeEventListener("keydown", escHandler, true);
+  }
+  function escHandler(e) {
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      close();
+    }
+  }
+  x.addEventListener("click", close);
+  document.addEventListener("keydown", escHandler, true);
+  overlay.onmousedown = (e) => {
+    if (e.target === overlay) close();
+  };
+  x.focus();
+  return { close, box };
+}
+
+function confirmModal(title, message, confirmLabel, onConfirm) {
+  const { box } = showModal({
+    title,
+    bodyHtml: '<div class="modal-text"></div>',
+    buttons: [
+      [t("btn.cancel"), (c) => c()],
+      [confirmLabel, async (c) => { c(); await onConfirm(); }, "primary"],
+    ],
+  });
+  box.querySelector(".modal-text").textContent = message;
+}
+
+function anyModalOpen() {
+  return $("#modal-overlay").classList.contains("open");
+}
+
+// ------------------------------------------------------------------ i18n
+
+function applyStaticStrings() {
+  document.querySelectorAll("[data-i18n]").forEach((node) => {
+    node.textContent = t(node.dataset.i18n);
+  });
+  document.documentElement.lang = getLang() === "zh" ? "zh-CN" : "en";
+  $("#out-path-label").textContent = t("outdir.label");
+  document.title = app.capture ? app.capture.pageTitle()
+                               : t("title.default");
+}
+
+async function switchLang(next) {
+  setLang(next);
+  try { await api.putSettings({ language: next }); }
+  catch (e) { /* language still switched locally */ }
+  renderAll();
+}
+
+function renderAll() {
+  applyStaticStrings();
+  renderPresetList();
+  renderHeaderInfo();
+  if (app.capture) {
+    app.capture.invalidate();
+    renderCapture();
+  }
+  if (app.builder) app.builder.render();
+  updateEmpty();
+}
+
+// ------------------------------------------------------------------ views
+
+function setView(view) {
+  app.view = view;
+  document.querySelectorAll(".view").forEach((v) => {
+    v.classList.toggle("active", v.id === `view-${view}`);
+  });
+  document.querySelectorAll(".topbar-btn[data-view]").forEach((b) => {
+    b.classList.toggle("active", b.dataset.view === view);
+  });
+}
+
+// ------------------------------------------------------------------ SSE
+
+function connectEvents() {
+  let delay = 400;
+  const connect = () => {
+    events(
+      (state) => {
+        delay = 400;
+        setConn(true);
+        onState(state);
+      },
+      () => {
+        setConn(false);
+        setTimeout(connect, delay);
+        delay = Math.min(delay * 1.6, 5000);
+      });
+  };
+  connect();
+}
+
+function setConn(ok) {
+  $("#conn-dot").classList.toggle("dead", !ok);
+}
+
+function onState(state) {
+  app.state = state;
+  renderHeaderInfo();
+  for (const dev of state.devices) {
+    if (dev.state === "device" && !app.deviceLists[dev.serial]) {
+      app.deviceLists[dev.serial] = { loading: true };
+      loadDeviceLists(dev.serial);
+    }
+    const s = dev.session;
+    if (s && s.status === "failed" && s.error &&
+        s.error !== app.lastSeenError) {
+      app.lastSeenError = s.error;
+      toast(s.error);
+    }
+  }
+  if (!app.selected ||
+      !state.devices.some((d) => d.serial === app.selected)) {
+    const first = [...state.devices].sort((a, b) =>
+      ((a.info && a.info.model) || a.serial)
+        .localeCompare((b.info && b.info.model) || b.serial))[0];
+    app.selected = first ? first.serial : null;
+  }
+  renderCapture();
+  updateEmpty();
+}
+
+async function loadDeviceLists(serial) {
+  try {
+    const [atrace, ftrace] = await Promise.all([
+      api.atrace(serial), api.ftrace(serial),
+    ]);
+    app.deviceLists[serial] = {
+      atrace: atrace.categories || [],
+      ftrace: ftrace.events,
+      fromDevice: true,
+    };
+  } catch (e) {
+    app.deviceLists[serial] = {
+      atrace: [], ftrace: null, fromDevice: false,
+    };
+  }
+  if (app.builder && app.view === "configs") app.builder.render();
+}
+
+function getLists() {
+  const lists = app.deviceLists[app.selected] || {};
+  const dev = (app.state && app.state.devices.find(
+    (d) => d.serial === app.selected)) || null;
+  const loading = lists.loading;
+  return {
+    atrace: loading ? [] : (lists.atrace || app.builtin.atrace),
+    ftrace: loading ? []
+      : (lists.ftrace && lists.ftrace.length
+         ? lists.ftrace : app.builtin.ftrace),
+    atraceDeviceName: (!loading && lists.fromDevice &&
+                       lists.atrace && lists.atrace.length &&
+                       dev && dev.info)
+      ? (dev.info.model || dev.serial) : null,
+    ftraceFromDevice: !!(lists.ftrace && lists.ftrace.length),
+  };
+}
+
+function updateEmpty() {
+  const empty = $("#empty");
+  const wrap = $("#capture-wrap");
+  const has = app.state && app.state.devices.length > 0;
+  empty.classList.toggle("hidden", has);
+  wrap.classList.toggle("hidden", !has);
+  if (!has) {
+    $("#empty-title").textContent = t("guide.waiting");
+    $("#empty-text").textContent =
+      [t("guide.step1"), t("guide.step2"), t("guide.step3")].join("\n\n");
+  }
+}
+
+// ------------------------------------------------------------------ capture
+
+function renderCapture() {
+  if (!app.capture || !app.state) return;
+  app.capture.setData({
+    presets: app.presets,
+    defaultPreset: app.settings.default_preset,
+    flightLifetimeH: app.settings.flight_lifetime_h,
+    outputs: app.outputs,
+  });
+  app.capture.update(app.state, app.selected);
+  document.title = app.capture.pageTitle();
+}
+
+async function refreshOutputs() {
+  try {
+    const data = await api.outputs();
+    app.outputs = data.outputs || [];
+  } catch (e) { /* keep stale list */ }
+}
+
+// ------------------------------------------------------------------ configs
+
+function initConfigs() {
+  app.editor = createEditor($("#pbtx-editor"), {
+    onInput: (text) => {
+      if (app.loadedPresetId) app.editorDirty = true;
+      clearTimeout(app.parseTimer);
+      app.parseTimer = setTimeout(() => parseText(text), 300);
+    },
+    onSave: (text) => parseText(text),
+  });
+  app.builder = createBuilder($("#builder"), {
+    getLists,
+    onChange: async (model) => {
+      try {
+        const res = await api.render(app.editor.getText(), model);
+        app.editorModel = model;
+        app.editor.setText(res.text, true);
+        app.editor.setError(0);
+        app.editorValid = true;
+        if (app.loadedPresetId) app.editorDirty = true;
+        setParseStatus({ ok: true });
+      } catch (e) { toast(e.message); }
+    },
+  });
+}
+
+function setParseStatus({ ok, error }) {
+  const node = $("#parse-status");
+  if (ok) {
+    node.textContent = t("editor.valid");
+    node.className = "parse-status ok";
+    app.editor.setError(0);
+    $("#parse-note").classList.add("hidden");
+  } else if (error) {
+    node.textContent = t("editor.invalid");
+    node.className = "parse-status bad";
+    app.editor.setError(error.line);
+    const note = $("#parse-note");
+    note.textContent = t("editor.lineError",
+      { line: error.line, col: error.col, msg: error.message }) +
+      " — " + t("builder.disabledNote");
+    note.classList.remove("hidden");
+  }
+}
+
+async function parseText(text) {
+  try {
+    const res = await api.parse(text);
+    if (!res.ok) {
+      app.editorValid = false;
+      setParseStatus({ error: res.error });
+      app.builder.setModel(app.editorModel, true);
+      return;
+    }
+    app.editorModel = res.model;
+    app.editorValid = true;
+    setParseStatus({ ok: true });
+    app.builder.setModel(res.model, false);
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+async function loadPreset(id, skipConfirm) {
+  if (!skipConfirm && app.editorDirty) {
+    confirmModal(t("tab.configs"), t("cfg.unsaved"),
+                 t("btn.confirm"), () => loadPreset(id, true));
+    return;
+  }
+  try {
+    const p = await api.preset(id);
+    app.editor.setText(p.text);
+    app.editorModel = null;
+    app.loadedPresetId = id;
+    app.editorDirty = false;
+    markPresetSelection();
+    parseText(p.text);
+  } catch (e) { toast(e.message); }
+}
+
+function markPresetSelection() {
+  document.querySelectorAll(".preset-item").forEach((n) => {
+    n.classList.toggle("selected", n.dataset.id === app.loadedPresetId);
+  });
+}
+
+function renderPresetList() {
+  const host = $("#preset-list");
+  host.textContent = "";
+  const groups = [
+    [t("cfg.builtin"), app.presets.filter((p) => p.builtin)],
+    [t("cfg.myPresets"), app.presets.filter((p) => !p.builtin)],
+  ];
+  for (const [label, items] of groups) {
+    if (!items.length) continue;
+    host.appendChild(el("div", "preset-group", label));
+    for (const p of items) {
+      const row = el("div", "preset-row");
+      const item = el("button", "preset-item", p.name);
+      item.dataset.id = p.id;
+      if (p.id === app.loadedPresetId) item.classList.add("selected");
+      if (p.id === app.settings.default_preset) {
+        item.appendChild(el("span", "preset-badge",
+                            " " + t("cfg.default")));
+      }
+      item.addEventListener("click", () => loadPreset(p.id));
+      row.appendChild(item);
+      if (!p.builtin) {
+        const del = el("button", "preset-del", "✕");
+        del.addEventListener("click", (e) => {
+          e.stopPropagation();
+          confirmModal(t("cfg.delete"),
+                       t("cfg.deletePreset", { name: p.name }),
+                       t("cfg.delete"), async () => {
+            try {
+              await api.deletePreset(p.id);
+              app.presets = (await api.presets()).presets || [];
+              renderPresetList();
+            } catch (err) { toast(err.message); }
+          });
+        });
+        row.appendChild(del);
+      }
+      host.appendChild(row);
+    }
+  }
+}
+
+function saveAsPreset() {
+  const input = document.createElement("input");
+  input.type = "text";
+  input.placeholder = t("cfg.namePrompt");
+  const modal = showModal({
+    title: t("cfg.saveAs"),
+    body: input,
+    buttons: [
+      [t("btn.cancel"), (c) => c()],
+      [t("btn.confirm"), async (c) => {
+        const name = input.value.trim();
+        if (!name) return;
+        try {
+          const res = await api.savePreset(name, app.editor.getText());
+          app.presets = (await api.presets()).presets || [];
+          app.loadedPresetId = res.id;
+          app.editorDirty = false;
+          renderPresetList();
+          toast(t("toast.presetSaved"));
+          c();
+        } catch (e) { toast(e.message); }
+      }, "primary"],
+    ],
+  });
+  input.focus();
+}
+
+function applyAsDefault() {
+  if (!app.editorValid) {
+    toast(t("builder.disabledNote"));
+    return;
+  }
+  app.draft = { text: app.editor.getText(), name: t("cfg.draft") };
+  if (app.selected) {
+    setPrefs(app.selected, { presetId: "__draft__" });
+    if (app.capture) app.capture.invalidate();
+  }
+  setView("capture");
+  renderCapture();
+}
+
+// ------------------------------------------------------------------ header
+
+function renderHeaderInfo() {
+  const dir = (app.state && app.state.output_dir) ||
+    app.settings.output_dir || "";
+  const node = $("#out-path");
+  node.textContent = dir;
+  node.title = dir;
+  const sel = $("#lang-select");
+  if (sel.value !== getLang()) sel.value = getLang();
+}
+
+function changeOutputDir() {
+  const input = document.createElement("input");
+  input.type = "text";
+  input.value = app.settings.output_dir || "";
+  input.placeholder = t("outdir.changePrompt");
+  const modal = showModal({
+    title: t("topbar.change"),
+    body: input,
+    buttons: [
+      [t("btn.cancel"), (c) => c()],
+      [t("btn.confirm"), async (c) => {
+        try {
+          app.settings = await api.putSettings(
+            { output_dir: input.value.trim() });
+          renderHeaderInfo();
+          c();
+        } catch (e) { toast(e.message); }
+      }, "primary"],
+    ],
+  });
+  input.focus();
+}
+
+function quitApp() {
+  const hasSession = app.state && app.state.devices.some(
+    (d) => d.session &&
+      ["starting", "recording", "stopping", "pulling"]
+        .includes(d.session.status));
+  const doQuit = async () => {
+    try { await api.quit(); } catch (e) { /* server already gone */ }
+    $("#quit-overlay").classList.remove("hidden");
+    $("#quit-overlay .quit-text").textContent = t("downbar");
+    setTimeout(() => window.close(), 1500);
+  };
+  if (hasSession) {
+    confirmModal(t("quit.title"), t("quit.body"),
+                 t("btn.confirmQuit"), doQuit);
+  } else {
+    doQuit();
+  }
+}
+
+// ------------------------------------------------------------------ events
+
+function bindStatic() {
+  document.querySelectorAll(".topbar-btn[data-view]").forEach((b) => {
+    b.addEventListener("click", () => setView(b.dataset.view));
+  });
+  $("#btn-quit").addEventListener("click", quitApp);
+  $("#lang-select").addEventListener("change", (e) => {
+    switchLang(e.target.value);
+  });
+  $("#btn-open-dir").addEventListener("click", async () => {
+    try { await api.openDir(); }
+    catch (e) { toast(e.message); }
+  });
+  $("#btn-change-dir").addEventListener("click", changeOutputDir);
+  $("#btn-save-preset").addEventListener("click", saveAsPreset);
+  $("#btn-apply-default").addEventListener("click", applyAsDefault);
+
+  document.addEventListener("keydown", (e) => {
+    const tag = document.activeElement && document.activeElement.tagName;
+    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(tag);
+    if (e.key === "Escape" && anyModalOpen()) return; // handled by modal
+    if (typing || anyModalOpen()) return;
+    if (e.key.toLowerCase() === "s" && !e.ctrlKey && !e.metaKey &&
+        app.view === "capture") {
+      app.capture.requestSnapshot();
+    } else if (/^[1-9]$/.test(e.key) && app.view === "capture" &&
+               app.state) {
+      const dev = app.state.devices[parseInt(e.key, 10) - 1];
+      if (dev) {
+        app.selected = dev.serial;
+        renderCapture();
+      }
+    } else if (e.key === "?") {
+      const modal = showModal({
+        title: t("help.title"),
+        bodyHtml: '<pre class="modal-code"></pre>',
+        buttons: [[t("btn.confirm"), (c) => c(), "primary"]],
+      });
+      modal.box.querySelector(".modal-code").textContent = t("help.body");
+    }
+  });
+}
+
+// ------------------------------------------------------------------ boot
+
+async function boot() {
+  setLang(resolveLang("auto"));
+  bindStatic();
+  initConfigs();
+  app.capture = createCapture({
+    rail: $("#device-rail"),
+    main: $("#capture-main"),
+    getPrefs, setPrefs,
+    getDraft: () => app.draft,
+    openConfigs: (presetId) => {
+      setView("configs");
+      if (presetId) loadPreset(presetId);
+    },
+    showModal,
+    showConfirm: confirmModal,
+    toast,
+    onSelect: (serial) => {
+      app.selected = serial;
+      renderCapture();
+    },
+  });
+  connectEvents();
+  try {
+    const [settings, presets, outputs, builtin] = await Promise.all([
+      api.settings(), api.presets(), api.outputs(), api.builtinLists(),
+    ]);
+    app.settings = settings;
+    if (settings.language && settings.language !== "auto") {
+      setLang(resolveLang(settings.language));
+    }
+    app.presets = presets.presets || [];
+    app.outputs = outputs.outputs || [];
+    app.builtin = {
+      atrace: builtin.atrace_categories || [],
+      ftrace: builtin.ftrace_events || [],
+    };
+    applyStaticStrings();
+    renderPresetList();
+    renderHeaderInfo();
+    const def = app.settings.default_preset ||
+      (app.presets[0] && app.presets[0].id);
+    if (def) loadPreset(def, true);
+    refreshOutputs();
+    setInterval(refreshOutputs, 15000);
+    setInterval(() => {
+      if (app.capture && app.state) {
+        document.title = app.capture.pageTitle();
+        app.capture.update(app.state, app.selected);
+      }
+    }, 1000);
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+window.addEventListener("DOMContentLoaded", boot);
+window.__app = app;  // for tools/ui_smoke.py

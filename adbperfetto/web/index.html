@@ -1,12 +1,80 @@
-<!DOCTYPE html>
-<html lang="en">
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>adbperfetto</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/static/css/app.css">
 </head>
 <body>
-<h1>adbperfetto</h1>
-<p>Frontend placeholder. The API is available under <code>/api/</code>
-(see <code>GET /api/state</code>).</p>
+<header id="topbar">
+  <div class="brand">adbperfetto</div>
+  <nav class="view-tabs">
+    <button class="topbar-btn active" data-view="capture"
+            data-i18n="tab.capture">Capture</button>
+    <button class="topbar-btn" data-view="configs"
+            data-i18n="tab.configs">Configs</button>
+  </nav>
+  <div class="spacer"></div>
+  <div class="outdir">
+    <span id="out-path-label" class="field-label"></span>
+    <span id="out-path" class="outdir-path"></span>
+    <button id="btn-open-dir" class="btn quiet small"
+            data-i18n="topbar.open">Open</button>
+    <button id="btn-change-dir" class="btn quiet small"
+            data-i18n="topbar.change">Change</button>
+  </div>
+  <select id="lang-select" class="lang-select" aria-label="Language">
+    <option value="zh">中文</option>
+    <option value="en">English</option>
+  </select>
+  <span id="conn-dot" class="conn-dot" aria-hidden="true"></span>
+  <button id="btn-quit" class="btn quiet small"
+          data-i18n="topbar.quit">Quit</button>
+</header>
+
+<main>
+  <section id="view-capture" class="view active">
+    <div id="empty" class="empty hidden">
+      <div id="empty-title" class="empty-title"></div>
+      <div id="empty-text" class="empty-text"></div>
+    </div>
+    <div id="capture-wrap" class="capture-wrap hidden">
+      <aside id="device-rail" class="rail"></aside>
+      <div id="capture-main" class="panel"></div>
+    </div>
+  </section>
+
+  <section id="view-configs" class="view">
+    <div class="configs-wrap">
+      <aside class="preset-col">
+        <div class="preset-head" data-i18n="tab.configs">Configs</div>
+        <div id="preset-list" class="preset-list"></div>
+      </aside>
+      <div class="editor-col">
+        <div class="editor-toolbar">
+          <span id="parse-status" class="parse-status"></span>
+          <div class="spacer"></div>
+          <button id="btn-apply-default" class="btn quiet small"
+                  data-i18n="btn.applyDefault">Use in Capture</button>
+          <button id="btn-save-preset" class="btn quiet small"
+                  data-i18n="cfg.saveAs">Save as preset</button>
+        </div>
+        <div id="parse-note" class="parse-note hidden"></div>
+        <div id="pbtx-editor" class="editor-host"></div>
+      </div>
+      <div id="builder" class="builder-col"></div>
+    </div>
+  </section>
+</main>
+
+<div id="modal-overlay" class="modal-overlay"></div>
+<div id="toast" class="toast" role="status"></div>
+<div id="quit-overlay" class="quit-overlay hidden">
+  <div class="quit-text">adbperfetto</div>
+</div>
+
+<script type="module" src="/static/js/app.js"></script>
 </body>
 </html>
