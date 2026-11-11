@@ -19,7 +19,8 @@ class StateStore:
             pass
 
     def _flush(self):
-        tmp = self.path.with_name(self.path.name + ".tmp")
+        tmp = self.path.with_name(
+            f"{self.path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
         tmp.write_text(json.dumps(self._data, indent=2), encoding="utf-8")
         os.replace(tmp, self.path)
 

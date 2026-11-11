@@ -129,6 +129,7 @@ class Settings:
         for key, value in partial.items():
             if key in _SETTINGS_DEFAULTS:
                 self._data[key] = value
-        tmp = self.path.with_name(self.path.name + ".tmp")
+        tmp = self.path.with_name(
+            f"{self.path.name}.{os.getpid()}.tmp")
         tmp.write_text(json.dumps(self._data, indent=2), encoding="utf-8")
         os.replace(tmp, self.path)

@@ -823,10 +823,15 @@ class FlightSession(_Session):
             self._fail(exc)
 
     def _alive(self) -> bool | None:
-        """True = alive, False = gone, None = could not check."""
+        """True = alive, False = gone, None = could not check.
+
+        Uses /proc presence rather than `kill -0`: on the KN8 `kill -0`
+        fails with EPERM for the perfetto process (SELinux domain), while
+        `kill -TERM` works. /proc/<pid> is a reliable liveness check.
+        """
         try:
             result = self._shell(
-                f"kill -0 {self.pid} 2>/dev/null; echo ALIVE=$?",
+                f"test -d /proc/{self.pid}; echo ALIVE=$?",
                 timeout=10)
         except AdbError:
             return None
