@@ -117,6 +117,7 @@ class Smoke:
                 self.test_flight_flow(page)
                 self.test_configs(page)
                 self.test_language(page)
+                self.test_theme(page)
                 browser.close()
         finally:
             self.stop_server()
@@ -306,6 +307,31 @@ class Smoke:
         self.check("EN toggle active", "active" in active, active)
         page.locator("#lang-zh").click()
         page.wait_for_timeout(600)
+
+    def test_theme(self, page):
+        print("theme toggle")
+        get_theme = "document.documentElement.dataset.theme"
+        initial = page.evaluate(get_theme)
+        self.check("initial theme resolved",
+                   initial in ("light", "dark"), initial)
+        page.locator("#btn-theme").click()
+        page.wait_for_timeout(400)
+        flipped = page.evaluate(get_theme)
+        self.check("theme flips on click",
+                   flipped in ("light", "dark") and flipped != initial,
+                   f"{initial} -> {flipped}")
+        self.check("theme saved to server",
+                   http("/api/settings").get("theme") == flipped,
+                   http("/api/settings").get("theme"))
+        page.reload(wait_until="networkidle")
+        page.wait_for_timeout(600)
+        after = page.evaluate(get_theme)
+        self.check("theme persists across reload",
+                   after == flipped, after)
+        # restore the original theme for a clean exit
+        if after != initial:
+            page.locator("#btn-theme").click()
+            page.wait_for_timeout(400)
 
 
 if __name__ == "__main__":

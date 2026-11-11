@@ -24,12 +24,12 @@ OUT = Path(tempfile.gettempdir()) / "adbperfetto_shots"
 from playwright.sync_api import sync_playwright
 
 
-def http(path, body=None):
+def http(path, body=None, method=None):
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(
         BASE + path, data=data,
         headers={"Content-Type": "application/json"},
-        method="POST" if data is not None else "GET")
+        method=method or ("POST" if data is not None else "GET"))
     with urllib.request.urlopen(req, timeout=10) as resp:
         return json.loads(resp.read())
 
@@ -59,6 +59,8 @@ class Shots:
     def __init__(self):
         self.proc = None
         self.errors = []
+        self.suffix = ""
+        self.shot_names = None
         OUT.mkdir(parents=True, exist_ok=True)
 
     def start_server(self):
@@ -88,7 +90,9 @@ class Shots:
                 self.proc.kill()
 
     def shot(self, page, name):
-        path = OUT / f"{name}.png"
+        if self.shot_names is not None and name not in self.shot_names:
+            return
+        path = OUT / f"{name}{self.suffix}.png"
         page.screenshot(path=str(path))
         print("  " + path.name)
 
@@ -124,9 +128,58 @@ class Shots:
                         if m.type == "error" else None)
                 page.on("pageerror",
                         lambda e: self.errors.append(str(e)))
+                light_only = "--light" in sys.argv
+                light_names = {
+                    "01_empty", "02_record_idle",
+                    "03_recording_disconnected", "05_done_mobilelog",
+                    "06_flight_running", "07_flight_stop_modal",
+                    "10_configs_builder_ftrace", "11_editor_error",
+                    "13_narrow_860",
+                }
+                if light_only:
+                    http("/api/settings", {"theme": "light"},
+                         method="PUT")
+                    self.suffix = "_light"
+                    self.shot_names = light_names
+                else:
+                    # deterministic dark pass regardless of OS or
+                    # headless prefers-color-scheme default
+                    page.add_init_script(
+                        'try { localStorage.setItem('
+                        '"adbperfetto.theme", "dark"); } catch (e) {}')
                 page.goto(BASE, wait_until="networkidle")
                 page.wait_for_timeout(1800)
                 self.shoot_all(page)
+                if not light_only:
+                    # clear leftover orphans/sessions so remove_all can
+                    # empty the rail for the light pass
+                    for dev in http("/api/state")["devices"]:
+                        if dev.get("orphan"):
+                            http(f"/api/devices/{dev['serial']}"
+                                 "/abandon", {})
+                        if dev.get("session"):
+                            try:
+                                http(f"/api/devices/{dev['serial']}"
+                                     "/dismiss", {})
+                            except Exception:
+                                pass
+
+                    # light-theme pass: same scenes, listed shots only
+                    page.locator("#btn-theme").click()
+                    wait(lambda: page.evaluate(
+                        "document.documentElement.dataset.theme")
+                        == "light", "light theme")
+                    # fresh page state (e.g. orphanHidden) for the
+                    # second pass; theme persists via
+                    # localStorage + server
+                    page.reload(wait_until="networkidle")
+                    page.wait_for_timeout(1500)
+                    wait(lambda: page.evaluate(
+                        "document.documentElement.dataset.theme")
+                        == "light", "light theme after reload")
+                    self.suffix = "_light"
+                    self.shot_names = light_names
+                    self.shoot_all(page)
                 browser.close()
         finally:
             self.stop_server()
