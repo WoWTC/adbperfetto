@@ -1,11 +1,18 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec: onefile adbperfetto.exe.
+"""PyInstaller spec: onefile adbperfetto-<version>.exe.
 
 Bundles adbperfetto/web and adbperfetto/presets under adbperfetto/
 inside the package so paths.resource_dir() finds them in _MEIPASS.
 adb is NOT bundled — it is resolved from PATH at runtime.
+The exe name comes from adbperfetto/_buildinfo.py (written by
+tools/write_buildinfo.py, which build.bat runs first).
 """
+import sys
+
 from PyInstaller.utils.hooks import collect_submodules
+
+sys.path.insert(0, SPECPATH)
+from adbperfetto._buildinfo import EXE_NAME
 
 a = Analysis(
     ["run_adbperfetto.py"],
@@ -31,7 +38,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="adbperfetto",
+    name=EXE_NAME,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

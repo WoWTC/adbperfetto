@@ -34,3 +34,13 @@ def from_git(base: str, repo_dir, run=subprocess.run):
         return f"{base}.{count.stdout.strip() or '0'}", build
     except Exception:
         return f"{base}.0", "unknown"
+
+
+def exe_name(version: str, build: str) -> str:
+    """PyInstaller exe name (no .exe), e.g. adbperfetto-2.0.42.
+
+    Builds from a dirty tree get a -dirty suffix so they are never
+    mistaken for a release.
+    """
+    suffix = "-dirty" if build.endswith("-dirty") else ""
+    return f"adbperfetto-{version}{suffix}"

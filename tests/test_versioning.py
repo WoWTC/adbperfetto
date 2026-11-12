@@ -1,7 +1,7 @@
 import subprocess
 import unittest
 
-from adbperfetto.versioning import from_git
+from adbperfetto.versioning import exe_name, from_git
 
 
 def fake_run(count="123", short="abc1234", dirty="", rc=0):
@@ -51,6 +51,13 @@ class VersioningTests(unittest.TestCase):
         for _args, kwargs in seen:
             self.assertEqual(kwargs["cwd"], "C:/repo")
             self.assertEqual(kwargs["timeout"], 5)
+
+    def test_exe_name_release(self):
+        self.assertEqual(exe_name("2.0.42", "abc1234"), "adbperfetto-2.0.42")
+
+    def test_exe_name_dirty(self):
+        self.assertEqual(exe_name("2.0.42", "abc1234-dirty"),
+                         "adbperfetto-2.0.42-dirty")
 
 
 if __name__ == "__main__":
