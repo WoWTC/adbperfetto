@@ -33,6 +33,9 @@ export const api = {
   deletePreset: (id) => req("DELETE", `/api/presets/${encodeURIComponent(id)}`),
   settings: () => req("GET", "/api/settings"),
   putSettings: (patch) => req("PUT", "/api/settings", patch),
+  prefs: () => req("GET", "/api/prefs"),
+  putPrefs: (serial, patch) =>
+    req("PUT", `/api/prefs/${encodeURIComponent(serial)}`, patch),
   parse: (text) => req("POST", "/api/config/parse", { text }),
   render: (text, model) => req("POST", "/api/config/render", { text, model }),
   preview: (args) => req("POST", "/api/config/preview", args),

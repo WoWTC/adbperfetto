@@ -26,6 +26,8 @@ const app = {
   view: "capture",
   selected: null,
   prefsCache: {},
+  prefsLoaded: false,
+  prefsSave: Promise.resolve(),
   draft: null,              // {text, name}
   editor: null,
   builder: null,
@@ -40,25 +42,33 @@ const app = {
 
 // ------------------------------------------------------------------ prefs
 
-function prefsKey(serial) {
-  return `adbperfetto.prefs.${serial}`;
-}
+const PREFS_KEY_PREFIX = "adbperfetto.prefs.";
 
 function getPrefs(serial) {
-  if (!app.prefsCache[serial]) {
-    try {
-      app.prefsCache[serial] =
-        JSON.parse(localStorage.getItem(prefsKey(serial))) || {};
-    } catch (e) { app.prefsCache[serial] = {}; }
-  }
+  if (!app.prefsCache[serial]) app.prefsCache[serial] = {};
   return app.prefsCache[serial];
 }
 
 function setPrefs(serial, patch) {
   const p = getPrefs(serial);
   Object.assign(p, patch);
-  app.prefsCache[serial] = p;
-  localStorage.setItem(prefsKey(serial), JSON.stringify(p));
+  app.prefsSave = app.prefsSave
+    .then(() => api.putPrefs(serial, patch))
+    .catch((e) => toast(e.message));
+}
+
+async function migratePrefs() {
+  for (const key of Object.keys(localStorage)) {
+    if (!key.startsWith(PREFS_KEY_PREFIX)) continue;
+    const serial = key.slice(PREFS_KEY_PREFIX.length);
+    try {
+      if (app.prefsCache[serial] === undefined) {
+        const parsed = JSON.parse(localStorage.getItem(key));
+        app.prefsCache[serial] = await api.putPrefs(serial, parsed);
+      }
+    } catch (e) { /* skip this key */ }
+    localStorage.removeItem(key);
+  }
 }
 
 // ------------------------------------------------------------------ toast
@@ -330,7 +340,7 @@ function getLists() {
 // ------------------------------------------------------------------ capture
 
 function renderCapture() {
-  if (!app.capture || !app.state) return;
+  if (!app.capture || !app.state || !app.prefsLoaded) return;
   app.capture.setData({
     presets: app.presets,
     defaultPreset: app.settings.default_preset,
@@ -739,9 +749,11 @@ async function boot() {
   });
   connectEvents();
   try {
-    const [settings, presets, outputs, builtin] = await Promise.all([
-      api.settings(), api.presets(), api.outputs(), api.builtinLists(),
-    ]);
+    const [settings, presets, outputs, builtin, prefs] =
+      await Promise.all([
+        api.settings(), api.presets(), api.outputs(), api.builtinLists(),
+        api.prefs(),
+      ]);
     app.settings = settings;
     reconcileTheme(settings.theme);
     if (settings.language && settings.language !== "auto") {
@@ -753,6 +765,10 @@ async function boot() {
       atrace: builtin.atrace_categories || [],
       ftrace: builtin.ftrace_events || [],
     };
+    app.prefsCache = prefs || {};
+    await migratePrefs();
+    app.prefsLoaded = true;
+    renderCapture();
     applyStaticStrings();
     renderPresetList();
     renderHeaderInfo();

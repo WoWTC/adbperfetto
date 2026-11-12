@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import threading
 from pathlib import Path
 
 from . import pbtx
@@ -143,3 +144,70 @@ class Settings:
             f"{self.path.name}.{os.getpid()}.tmp")
         tmp.write_text(json.dumps(self._data, indent=2), encoding="utf-8")
         os.replace(tmp, self.path)
+
+
+_PREF_TYPES = {
+    "presetId": str,
+    "mode": str,
+    "durationMin": int,
+    "durationSet": bool,
+    "noLimit": bool,
+    "mobilelog": bool,
+    "lifetimeH": int,
+}
+
+_PREF_MODES = ("record", "flight")
+
+
+def _valid_pref(key, value) -> bool:
+    expected = _PREF_TYPES.get(key)
+    if expected is None or type(value) is not expected:
+        return False
+    if key == "mode" and value not in _PREF_MODES:
+        return False
+    return True
+
+
+class DevicePrefs:
+    """Per-device UI prefs ({serial: {key: value}}) persisted in data_dir."""
+
+    def __init__(self, data_dir):
+        self.path = Path(data_dir) / "device_prefs.json"
+        self._lock = threading.Lock()
+        self._data = {}
+        try:
+            stored = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            stored = None
+        if isinstance(stored, dict):
+            for serial, prefs in stored.items():
+                if not isinstance(prefs, dict):
+                    continue
+                self._data[serial] = {
+                    key: value for key, value in prefs.items()
+                    if _valid_pref(key, value)}
+
+    def to_dict(self) -> dict:
+        with self._lock:
+            return {serial: dict(prefs)
+                    for serial, prefs in self._data.items()}
+
+    def update(self, serial: str, patch: dict) -> dict:
+        if not isinstance(serial, str) or not serial:
+            raise ValueError(f"Invalid serial: {serial!r}")
+        if not isinstance(patch, dict):
+            raise ValueError(f"Invalid patch: {patch!r}")
+        for key, value in patch.items():
+            if key in _PREF_TYPES and not _valid_pref(key, value):
+                raise ValueError(f"Invalid {key}: {value!r}")
+        with self._lock:
+            prefs = self._data.setdefault(serial, {})
+            for key, value in patch.items():
+                if key in _PREF_TYPES:
+                    prefs[key] = value
+            tmp = self.path.with_name(
+                f"{self.path.name}.{os.getpid()}.tmp")
+            tmp.write_text(json.dumps(self._data, indent=2),
+                           encoding="utf-8")
+            os.replace(tmp, self.path)
+            return dict(prefs)

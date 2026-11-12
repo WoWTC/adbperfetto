@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from . import VERSION, builder, outputs, paths, pbtx
 from .adb import AdbError
 from .device import atrace_categories, ftrace_events
+from .presets import DevicePrefs
 from .sessions import SessionError
 
 TERMINAL = ("done", "failed", "ended", "abandoned")
@@ -77,7 +78,10 @@ def _http_error(exc: Exception) -> HTTPException:
 
 
 def create_app(manager, presets, settings, quit_hook=None,
-               shutdown_event=None, demo_adb=None) -> FastAPI:
+               shutdown_event=None, demo_adb=None,
+               device_prefs=None) -> FastAPI:
+    if device_prefs is None:
+        device_prefs = DevicePrefs(settings.path.parent)
     app = FastAPI(title="adbperfetto", version=VERSION)
     app.state.quit_hook = quit_hook
     app.state.shutdown_event = shutdown_event or threading.Event()
@@ -219,6 +223,14 @@ def create_app(manager, presets, settings, quit_hook=None,
     def put_settings(body: dict = Body(...)):
         call(settings.update, body)
         return settings.to_dict()
+
+    @app.get("/api/prefs")
+    def get_prefs():
+        return device_prefs.to_dict()
+
+    @app.put("/api/prefs/{serial}")
+    def put_prefs(serial: str, body: dict = Body(...)):
+        return call(device_prefs.update, serial, body)
 
     # -- config helpers -----------------------------------------------------------
 

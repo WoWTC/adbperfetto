@@ -1,10 +1,12 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
 from adbperfetto import pbtx
 from adbperfetto.paths import resource_dir
-from adbperfetto.presets import PresetStore, Settings, slugify
+from adbperfetto.presets import (
+    DevicePrefs, PresetStore, Settings, slugify)
 
 BUILTIN_DIR = resource_dir() / "presets"
 
@@ -92,6 +94,76 @@ class SettingsTests(unittest.TestCase):
             for bad in ("blue", "", None, 1):
                 with self.assertRaises(ValueError):
                     settings.update({"theme": bad})
+
+
+class DevicePrefsTests(unittest.TestCase):
+    def test_update_persists_and_reloads(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            prefs = DevicePrefs(tmp)
+            out = prefs.update("SER1", {"mode": "flight",
+                                        "lifetimeH": 12})
+            self.assertEqual(out, {"mode": "flight", "lifetimeH": 12})
+            reloaded = DevicePrefs(tmp)
+            self.assertEqual(reloaded.to_dict()["SER1"]["mode"], "flight")
+            self.assertEqual(reloaded.to_dict()["SER1"]["lifetimeH"], 12)
+
+    def test_per_serial_isolation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            prefs = DevicePrefs(tmp)
+            prefs.update("A", {"mode": "flight"})
+            prefs.update("B", {"noLimit": True})
+            data = prefs.to_dict()
+            self.assertEqual(data["A"], {"mode": "flight"})
+            self.assertEqual(data["B"], {"noLimit": True})
+
+    def test_unknown_keys_ignored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            prefs = DevicePrefs(tmp)
+            out = prefs.update("A", {"bogus": 1, "noLimit": True})
+            self.assertNotIn("bogus", out)
+            self.assertEqual(out["noLimit"], True)
+            self.assertNotIn("bogus",
+                             DevicePrefs(tmp).to_dict()["A"])
+
+    def test_invalid_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            prefs = DevicePrefs(tmp)
+            for patch in ({"durationMin": "5"}, {"durationMin": True},
+                          {"noLimit": 1}, {"mode": "x"}):
+                with self.assertRaises(ValueError):
+                    prefs.update("A", patch)
+            with self.assertRaises(ValueError):
+                prefs.update("", {"mode": "record"})
+            with self.assertRaises(ValueError):
+                prefs.update("A", "not a dict")
+
+    def test_failed_patch_leaves_data_unchanged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            prefs = DevicePrefs(tmp)
+            prefs.update("A", {"mode": "flight"})
+            with self.assertRaises(ValueError):
+                prefs.update("A", {"noLimit": True, "mode": "x"})
+            self.assertEqual(prefs.to_dict()["A"], {"mode": "flight"})
+            self.assertEqual(DevicePrefs(tmp).to_dict()["A"],
+                             {"mode": "flight"})
+
+    def test_corrupted_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "device_prefs.json").write_text(
+                "not json{{{", encoding="utf-8")
+            self.assertEqual(DevicePrefs(tmp).to_dict(), {})
+            Path(tmp, "device_prefs.json").write_text(
+                '["a", "b"]', encoding="utf-8")
+            self.assertEqual(DevicePrefs(tmp).to_dict(), {})
+
+    def test_load_drops_bad_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "device_prefs.json").write_text(json.dumps({
+                "A": {"mode": "flight", "bogus": 1, "noLimit": "yes"},
+                "B": "not-a-dict",
+            }), encoding="utf-8")
+            self.assertEqual(DevicePrefs(tmp).to_dict(),
+                             {"A": {"mode": "flight"}})
 
 
 if __name__ == "__main__":

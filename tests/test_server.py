@@ -145,6 +145,17 @@ class ServerTests(unittest.TestCase):
                                   json={"language": "zh"}).json()
         self.assertEqual(updated["language"], "zh")
 
+    def test_prefs(self):
+        self.assertEqual(self.client.get("/api/prefs").json(), {})
+        updated = self.client.put(f"/api/prefs/{SERIAL}",
+                                  json={"mode": "flight"}).json()
+        self.assertEqual(updated["mode"], "flight")
+        self.assertEqual(self.client.get("/api/prefs").json()
+                         [SERIAL]["mode"], "flight")
+        bad = self.client.put(f"/api/prefs/{SERIAL}",
+                              json={"durationMin": "5"})
+        self.assertEqual(bad.status_code, 400)
+
     def test_config_parse(self):
         ok = self.client.post("/api/config/parse", json={
             "text": "buffers { size_kb: 8 }\nduration_ms: 100\n"}).json()

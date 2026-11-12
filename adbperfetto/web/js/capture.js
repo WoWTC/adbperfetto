@@ -261,7 +261,7 @@ export function createCapture(deps) {
     }
     sel.value = found ? presetId
       : (ui.defaultPreset || (ui.presets[0] && ui.presets[0].id));
-    if (sel.value !== presetId) {
+    if (sel.value !== presetId && ui.presets.length) {
       deps.setPrefs(serial, { presetId: sel.value });
     }
     sel.addEventListener("change", () => {

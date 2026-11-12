@@ -16,7 +16,7 @@ import uvicorn
 
 from . import VERSION, paths
 from .adb import Adb, AdbError
-from .presets import PresetStore, Settings
+from .presets import DevicePrefs, PresetStore, Settings
 from .server import create_app
 from .sessions import SessionManager
 from .state import StateStore
@@ -83,6 +83,7 @@ def main(argv=None) -> int:
             return 0
 
     settings = Settings(data)
+    device_prefs = DevicePrefs(data)
     presets = PresetStore(paths.resource_dir() / "presets",
                           data / "presets")
     state = StateStore(data / "state.json")
@@ -120,7 +121,8 @@ def main(argv=None) -> int:
     app = create_app(manager, presets, settings,
                      quit_hook=lambda: setattr(server, "should_exit", True),
                      shutdown_event=shutdown_event,
-                     demo_adb=adb if demo else None)
+                     demo_adb=adb if demo else None,
+                     device_prefs=device_prefs)
     config.app = app
 
     (data / "instance.json").write_text(

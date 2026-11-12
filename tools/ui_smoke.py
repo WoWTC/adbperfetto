@@ -118,6 +118,7 @@ class Smoke:
                 self.test_configs(page)
                 self.test_language(page)
                 self.test_theme(page)
+                self.test_prefs(page)
                 browser.close()
         finally:
             self.stop_server()
@@ -332,6 +333,25 @@ class Smoke:
         if after != initial:
             page.locator("#btn-theme").click()
             page.wait_for_timeout(400)
+
+    def test_prefs(self, page):
+        print("prefs persistence")
+        self.select_kn8(page)
+        page.locator(".seg-btn").nth(1).click()      # flight mode
+        wait_for(lambda: http("/api/prefs").get(KN8, {}).get("mode")
+                 == "flight", timeout=10, what="flight mode saved")
+        self.check("flight mode saved to server", True)
+        page.reload(wait_until="networkidle")
+        page.wait_for_timeout(600)
+        self.select_kn8(page)
+        flight_cls = page.locator(".seg-btn").nth(1) \
+            .get_attribute("class") or ""
+        self.check("flight seg active after reload",
+                   "active" in flight_cls, flight_cls)
+        page.locator(".seg-btn").nth(0).click()      # back to record
+        wait_for(lambda: http("/api/prefs").get(KN8, {}).get("mode")
+                 == "record", timeout=10, what="record mode saved")
+        self.check("record mode restored", True)
 
 
 if __name__ == "__main__":
