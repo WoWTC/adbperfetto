@@ -78,7 +78,15 @@ class FakeAdb:
             self.calls.append(("devices", None, None, None))
         if self.offline:
             raise AdbError("adb devices failed")
-        return list(self.device_list)
+        return [(item[0], item[1]) for item in self.device_list]
+
+    def devices_with_hints(self):
+        with self.lock:
+            self.calls.append(("devices", None, None, None))
+        if self.offline:
+            raise AdbError("adb devices failed")
+        return [(item[0], item[1], item[2] if len(item) > 2 else "")
+                for item in self.device_list]
 
     def pull(self, serial, remote, local, *, timeout=3600):
         local = Path(local)

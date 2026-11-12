@@ -1143,20 +1143,27 @@ class DeviceMonitor:
             m._bump()
             return
         try:
-            devices = m.adb.devices()
+            if hasattr(m.adb, "devices_with_hints"):
+                raw = m.adb.devices_with_hints()
+            else:
+                raw = m.adb.devices()
+            devices = [(item[0], item[1], item[2] if len(item) > 2 else "")
+                       for item in raw]
             m.adb_ok = True
             m.adb_error = None
         except AdbError as exc:
             m.adb_ok = False
             m.adb_error = str(exc)
             devices = []
-        seen = {serial for serial, _state in devices}
-        for serial, state in devices:
+        seen = {serial for serial, _state, _hint in devices}
+        for serial, state, hint in devices:
             entry = m.devices.setdefault(serial, {
                 "serial": serial, "state": state, "info": None,
                 "last_seen": time.time()})
             entry["state"] = state
             entry["last_seen"] = time.time()
+            if entry["info"] is None and hint:
+                entry["info"] = DeviceInfo(serial=serial, model=hint)
         for serial in list(m.devices):
             if serial not in seen:
                 # Keep the entry (marked disconnected) while a session
@@ -1166,14 +1173,30 @@ class DeviceMonitor:
                 else:
                     del m.devices[serial]
                 m._probed.discard(serial)
-        for serial, state in devices:
-            if state != "device" or serial in m._probed:
+                m._recovered.discard(serial)
+        for serial, state, _hint in devices:
+            if state != "device":
                 continue
-            m._probed.add(serial)
-            try:
-                m._recover(serial)
-            except Exception as exc:
-                log.warning("Recovery check failed for %s: %s", serial, exc)
+            if serial not in m._probed:
+                try:
+                    info = probe(m.adb, serial)
+                    prev = m.devices[serial]["info"]
+                    if not info.model and prev and prev.model:
+                        info.model = prev.model
+                    m.devices[serial]["info"] = info
+                    session = m.sessions.get(serial)
+                    if session is not None:
+                        session.info = info
+                    m._probed.add(serial)
+                except Exception as exc:
+                    log.warning("Could not probe %s: %s", serial, exc)
+            if serial not in m._recovered:
+                m._recovered.add(serial)
+                try:
+                    m._recover(serial)
+                except Exception as exc:
+                    log.warning("Recovery check failed for %s: %s",
+                                serial, exc)
         m._bump()
 
 
@@ -1197,6 +1220,7 @@ class SessionManager:
         self.adb_ok = adb is not None
         self.adb_error = None
         self._probed = set()
+        self._recovered = set()
         self._pending = (state_store.all() if state_store else {})
         self._lock = threading.Lock()
         self._changed = threading.Event()
@@ -1290,10 +1314,6 @@ class SessionManager:
 
     def _recover(self, serial: str):
         entry = self.devices[serial]
-        try:
-            entry["info"] = probe(self.adb, serial)
-        except AdbError as exc:
-            log.warning("Could not probe %s: %s", serial, exc)
         with self._lock:
             session = self.sessions.get(serial)
             if session is not None:

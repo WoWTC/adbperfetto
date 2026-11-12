@@ -679,6 +679,39 @@ class ManagerTests(unittest.TestCase):
             finally:
                 manager.shutdown()
 
+    def test_unauthorized_uses_model_hint_and_retries_probe(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            adb = FakeAdb()
+            adb.device_list = [("S1", "unauthorized", "Infinix X1202")]
+            calls = []
+
+            @adb.on(r"echo MODEL=")
+            def _probe(_ctx):
+                calls.append(1)
+                if len(calls) == 1:
+                    raise Exception("adbd not ready")
+                return Result(
+                    0, "MODEL=Infinix X1202\nMARKET_TRAN=XPAD Edge 2\n"
+                       "SDK=37\nRELEASE=17\n", "")
+
+            manager = SessionManager(
+                adb, StateStore(Path(tmp) / "state.json"), None,
+                Path(tmp) / "out", autostart=False)
+            manager.monitor.tick()
+            snap1 = manager.snapshot()["devices"][0]
+            self.assertEqual(snap1["info"]["model"], "Infinix X1202")
+            self.assertEqual(calls, [])
+
+            # User taps Allow -> first probe fails -> next tick retries & succeeds
+            adb.device_list = [("S1", "device", "Infinix X1202")]
+            manager.monitor.tick()
+            self.assertEqual(len(calls), 1)
+            manager.monitor.tick()
+            self.assertEqual(len(calls), 2)
+            snap2 = manager.snapshot()["devices"][0]
+            self.assertEqual(snap2["info"]["model"], "Infinix X1202")
+            self.assertEqual(snap2["info"]["device_name"], "XPAD Edge 2")
+
     def test_snapshot_marks_wifi_serial(self):
         with tempfile.TemporaryDirectory() as tmp:
             adb = make_record_adb()

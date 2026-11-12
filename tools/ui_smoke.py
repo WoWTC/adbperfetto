@@ -142,6 +142,14 @@ class Smoke:
         wait_for(lambda: page.locator("#app-version").inner_text()
                  == f"v{version}", timeout=10, what="topbar version")
         self.check("topbar shows version", True, f"v{version}")
+        kn8_rail = page.locator(
+            f'.rail-row[data-serial="{KN8}"] .rail-model').inner_text()
+        self.check("rail shows device name + model",
+                   kn8_rail == "SPARK 30C (TECNO KN8)", kn8_rail)
+        unauth_rail = page.locator(
+            '.rail-row[data-serial="R58MDEMO"] .rail-model').inner_text()
+        self.check("unauthorized rail uses model hint",
+                   unauth_rail == "R58M", unauth_rail)
 
     def test_mobilelog_default(self, page):
         print("mobilelog row + default on")

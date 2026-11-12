@@ -814,6 +814,16 @@ main {
   letter-spacing: -0.015em;
   color: var(--ink);
 }
+.dev-model {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-soft);
+  background: var(--well);
+  border: 1px solid var(--etch);
+  border-radius: 4px;
+  padding: 2px 8px;
+}
 .dev-badge {
   font-size: 11.5px;
   font-weight: 600;

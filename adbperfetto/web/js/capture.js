@@ -93,6 +93,45 @@ function safeFilename(value) {
     .replace(/^[ ._]+|[ ._]+$/g, "") || "unknown";
 }
 
+function cleanLabel(value) {
+  return String(value || "").trim();
+}
+
+function sameName(a, b) {
+  const norm = (x) => cleanLabel(x).toLowerCase().replace(/[\s_-]+/g, "");
+  return !norm(a) || !norm(b) || norm(a) === norm(b);
+}
+
+export function deviceLabels(dev) {
+  const info = (dev && dev.info) || {};
+  const name = cleanLabel(info.device_name);
+  const model = cleanLabel(info.model);
+  if (name && model && !sameName(name, model)) {
+    return {
+      railTitle: `${name} (${model})`,
+      headTitle: name,
+      headModel: model,
+      hasRealName: true,
+    };
+  }
+  const single = name || model;
+  if (single) {
+    return {
+      railTitle: single,
+      headTitle: single,
+      headModel: "",
+      hasRealName: true,
+    };
+  }
+  const serial = (dev && dev.serial) || "";
+  return {
+    railTitle: serial,
+    headTitle: serial,
+    headModel: "",
+    hasRealName: false,
+  };
+}
+
 function emptyGuide(state) {
   const stage = el("div", "empty-stage");
   const wrap = el("div", "empty");
@@ -149,6 +188,8 @@ export function createCapture(deps) {
   function railSignature(devices) {
     return JSON.stringify(devices.map((d) => [
       d.serial, d.state,
+      d.info ? d.info.model : "",
+      d.info ? d.info.device_name : "",
       d.session ? d.session.status : null,
       d.session ? d.session.mode : null,
       d.session ? d.session.connected : null,
@@ -161,8 +202,8 @@ export function createCapture(deps) {
       const act = (d) =>
         d.session && ACTIVE.has(d.session.status) ? 0 : 1;
       if (act(a) !== act(b)) return act(a) - act(b);
-      const name = (d) => (d.info && d.info.model) || d.serial;
-      return name(a).localeCompare(name(b));
+      return deviceLabels(a).railTitle.localeCompare(
+        deviceLabels(b).railTitle);
     });
   }
 
@@ -179,6 +220,7 @@ export function createCapture(deps) {
     }
     for (const dev of sortDevices(ui.state.devices)) {
       const status = deviceStatus(dev, ui.orphanHidden);
+      const labels = deviceLabels(dev);
       const row = el("button", "rail-row");
       row.dataset.serial = dev.serial;
       if (ui.selected && dev.serial === ui.selected.serial) {
@@ -186,9 +228,12 @@ export function createCapture(deps) {
       }
       row.appendChild(el("span", "rail-led " + status.cls));
       const body = el("span", "rail-body");
-      body.appendChild(el("span", "rail-model",
-                          (dev.info && dev.info.model) || dev.serial));
-      body.appendChild(el("span", "rail-serial", dev.serial));
+      const modelEl = el("span", "rail-model", labels.railTitle);
+      modelEl.title = labels.railTitle;
+      body.appendChild(modelEl);
+      if (labels.hasRealName) {
+        body.appendChild(el("span", "rail-serial", dev.serial));
+      }
       const right = el("span", "rail-status");
       right.appendChild(el("span", "rail-word " + status.cls,
                            t(status.key)));
@@ -247,6 +292,7 @@ export function createCapture(deps) {
     return JSON.stringify([
       dev.serial, dev.state,
       dev.info ? dev.info.model : "",
+      dev.info ? dev.info.device_name : "",
       s.status, s.mode, s.connected,
       s.stop_requested ? 1 : 0,
       s.snapshot_busy ? 1 : 0,
@@ -388,8 +434,11 @@ export function createCapture(deps) {
     const head = el("div", "dev-head");
     const main = el("div", "dev-head-main");
     const titleGroup = el("div", "dev-title-group");
-    titleGroup.appendChild(el("h1", "dev-name",
-                              (dev.info && dev.info.model) || dev.serial));
+    const labels = deviceLabels(dev);
+    titleGroup.appendChild(el("h1", "dev-name", labels.headTitle));
+    if (labels.headModel) {
+      titleGroup.appendChild(el("span", "dev-model", labels.headModel));
+    }
     const st = deviceStatus(dev, ui.orphanHidden);
     titleGroup.appendChild(el("span", "dev-badge " + st.cls, t(st.key)));
     main.append(titleGroup, metaRow(dev));

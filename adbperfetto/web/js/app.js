@@ -5,7 +5,7 @@ import { t, setLang, getLang, resolveLang } from "./i18n.js";
 import { fmtSize } from "./tape.js";
 import { createEditor } from "./editor.js";
 import { createBuilder } from "./builder.js";
-import { createCapture } from "./capture.js";
+import { createCapture, deviceLabels } from "./capture.js";
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -314,8 +314,8 @@ function onState(state) {
   if (!app.selected ||
       !state.devices.some((d) => d.serial === app.selected)) {
     const first = [...state.devices].sort((a, b) =>
-      ((a.info && a.info.model) || a.serial)
-        .localeCompare((b.info && b.info.model) || b.serial))[0];
+      deviceLabels(a).railTitle.localeCompare(
+        deviceLabels(b).railTitle))[0];
     app.selected = first ? first.serial : null;
   }
   renderCapture();
@@ -352,7 +352,7 @@ function getLists() {
     atraceDeviceName: (!loading && lists.fromDevice &&
                        lists.atrace && lists.atrace.length &&
                        dev && dev.info)
-      ? (dev.info.model || dev.serial) : null,
+      ? deviceLabels(dev).headTitle : null,
     ftraceFromDevice: !!(lists.ftrace && lists.ftrace.length),
   };
 }
@@ -628,9 +628,9 @@ function renderHeaderInfo() {
   $("#lang-en").classList.toggle("active", lang === "en");
   const dev = app.state && app.state.devices.find(
     (d) => d.serial === app.selected);
-  const model = dev && dev.info && dev.info.model;
-  $("#btn-apply-default").textContent = model
-    ? t("cfg.useFor", { device: model })
+  const label = dev && dev.info && deviceLabels(dev).headTitle;
+  $("#btn-apply-default").textContent = label
+    ? t("cfg.useFor", { device: label })
     : t("btn.applyDefault");
 }
 

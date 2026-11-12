@@ -6,6 +6,7 @@ from dataclasses import dataclass, asdict
 class DeviceInfo:
     serial: str
     model: str = ""
+    device_name: str = ""
     manufacturer: str = ""
     device: str = ""
     sdk: int = 0
@@ -24,6 +25,10 @@ class DeviceInfo:
 
 _PROPS = {
     "MODEL": "ro.product.model",
+    "MARKET_RO": "ro.product.marketname",
+    "MARKET_TRAN": "persist.sys.tran.device.name",
+    "MARKET_TRAN2": "ro.tran.market.name",
+    "MARKET_OPLUS": "ro.vendor.oplus.market.name",
     "MANUFACTURER": "ro.product.manufacturer",
     "DEVICE": "ro.product.device",
     "SDK": "ro.build.version.sdk",
@@ -37,6 +42,8 @@ _PROPS = {
 
 def probe(adb, serial) -> DeviceInfo:
     parts = [f"echo {key}=$(getprop {prop})" for key, prop in _PROPS.items()]
+    parts.append(
+        "echo DEV_NAME=$(settings get global device_name 2>/dev/null | head -1)")
     parts.append("echo PERFETTO=$(perfetto --version 2>/dev/null | head -1)")
     parts.append("echo LOGGERUI=$(pm path com.debug.loggerui 2>/dev/null | head -1)")
     result = adb.shell(serial, "; ".join(parts), timeout=15)
@@ -47,6 +54,12 @@ def probe(adb, serial) -> DeviceInfo:
             values[key.strip()] = value.strip()
     info = DeviceInfo(serial=serial)
     info.model = values.get("MODEL", "")
+    for key in ("MARKET_RO", "MARKET_TRAN", "MARKET_TRAN2",
+                "MARKET_OPLUS", "DEV_NAME"):
+        cand = values.get(key, "").strip()
+        if cand and cand.lower() not in ("null", "unknown", "none"):
+            info.device_name = cand
+            break
     info.manufacturer = values.get("MANUFACTURER", "")
     info.device = values.get("DEVICE", "")
     info.sdk = int(values["SDK"]) if values.get("SDK", "").isdigit() else 0

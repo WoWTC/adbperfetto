@@ -18,6 +18,22 @@ def is_wifi_serial(serial: str) -> bool:
             or "._adb._tcp" in serial)
 
 
+def parse_devices_output(stdout: str) -> list[tuple[str, str, str]]:
+    """Parse `adb devices -l` into `(serial, state, model_hint)` tuples."""
+    devices = []
+    for line in stdout.splitlines():
+        parts = line.strip().split()
+        if (len(parts) >= 2 and parts[0] != "List"
+                and not parts[0].startswith("*")):
+            hint = ""
+            for token in parts[2:]:
+                if token.startswith("model:"):
+                    hint = token[6:].replace("_", " ").strip()
+                    break
+            devices.append((parts[0], parts[1], hint))
+    return devices
+
+
 @dataclass
 class Result:
     returncode: int
@@ -60,16 +76,15 @@ class Adb:
         return self.run(["shell", command], serial=serial, timeout=timeout,
                         input_text=input_text)
 
-    def devices(self) -> list[tuple[str, str]]:
-        result = self.run(["devices"], timeout=10)
-        devices = []
+    def devices_with_hints(self) -> list[tuple[str, str, str]]:
+        result = self.run(["devices", "-l"], timeout=10)
         if result.returncode == 0:
-            for line in result.stdout.splitlines():
-                parts = line.strip().split()
-                if (len(parts) >= 2 and parts[0] != "List"
-                        and not parts[0].startswith("*")):
-                    devices.append((parts[0], parts[1]))
-        return devices
+            return parse_devices_output(result.stdout)
+        return []
+
+    def devices(self) -> list[tuple[str, str]]:
+        return [(serial, state)
+                for serial, state, _hint in self.devices_with_hints()]
 
     def pull(self, serial: str, remote: str, local: Path, *,
              timeout: float = 3600) -> Result:

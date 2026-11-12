@@ -27,9 +27,10 @@ KNOCK = b"\x0a\x3f"               # plausible perfetto-ish leading bytes
 class DemoDevice:
     def __init__(self, serial, model, manufacturer, device, sdk, release,
                  build_id, abi="arm64-v8a", hardware="", perfetto="v49.0",
-                 mobilelog=False, state="device"):
+                 mobilelog=False, state="device", device_name=""):
         self.serial = serial
         self.model = model
+        self.device_name = device_name
         self.manufacturer = manufacturer
         self.device = device
         self.sdk = sdk
@@ -63,6 +64,7 @@ class DemoDevice:
         loggerui = "package:/x" if self.mobilelog else ""
         return (
             f"MODEL={self.model}\n"
+            f"MARKET_TRAN={self.device_name}\n"
             f"MANUFACTURER={self.manufacturer}\n"
             f"DEVICE={self.device}\n"
             f"SDK={self.sdk}\n"
@@ -82,7 +84,8 @@ def default_devices() -> dict[str, DemoDevice]:
     for dev in (
         DemoDevice("KN8DEMO0001", "TECNO KN8", "TECNO", "TECNO-KN8",
                    36, "16", "KN8-16.2.0.154(OP001PF001AZ)DEMO",
-                   hardware="mt6835", mobilelog=True),
+                   hardware="mt6835", mobilelog=True,
+                   device_name="SPARK 30C"),
         DemoDevice("PIXEL7DEMO", "Pixel 7", "Google", "panther",
                    34, "14", "UP1A.231005.007.DEMO",
                    hardware="gs201", perfetto="v39.0"),
@@ -155,6 +158,11 @@ class DemoAdb:
         self.dev = default_devices()
 
     # -- Adb interface --------------------------------------------------------
+
+    def devices_with_hints(self) -> list[tuple[str, str, str]]:
+        return [(serial, dev.state, dev.model)
+                for serial, dev in self.dev.items()
+                if dev.state != "unplugged"]
 
     def devices(self) -> list[tuple[str, str]]:
         return [(serial, dev.state) for serial, dev in self.dev.items()
