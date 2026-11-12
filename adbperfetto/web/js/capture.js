@@ -106,20 +106,20 @@ export function deviceLabels(dev) {
   const info = (dev && dev.info) || {};
   const name = cleanLabel(info.device_name);
   const model = cleanLabel(info.model);
-  if (name && model && !sameName(name, model)) {
+  if (model && name && !sameName(model, name)) {
     return {
-      railTitle: `${name} (${model})`,
-      headTitle: name,
-      headModel: model,
+      railTitle: `${model} (${name})`,
+      headTitle: model,
+      headSub: name,
       hasRealName: true,
     };
   }
-  const single = name || model;
+  const single = model || name;
   if (single) {
     return {
       railTitle: single,
       headTitle: single,
-      headModel: "",
+      headSub: "",
       hasRealName: true,
     };
   }
@@ -127,7 +127,7 @@ export function deviceLabels(dev) {
   return {
     railTitle: serial,
     headTitle: serial,
-    headModel: "",
+    headSub: "",
     hasRealName: false,
   };
 }
@@ -436,8 +436,8 @@ export function createCapture(deps) {
     const titleGroup = el("div", "dev-title-group");
     const labels = deviceLabels(dev);
     titleGroup.appendChild(el("h1", "dev-name", labels.headTitle));
-    if (labels.headModel) {
-      titleGroup.appendChild(el("span", "dev-model", labels.headModel));
+    if (labels.headSub) {
+      titleGroup.appendChild(el("span", "dev-model", labels.headSub));
     }
     const st = deviceStatus(dev, ui.orphanHidden);
     titleGroup.appendChild(el("span", "dev-badge " + st.cls, t(st.key)));

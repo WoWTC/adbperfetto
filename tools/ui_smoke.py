@@ -144,8 +144,8 @@ class Smoke:
         self.check("topbar shows version", True, f"v{version}")
         kn8_rail = page.locator(
             f'.rail-row[data-serial="{KN8}"] .rail-model').inner_text()
-        self.check("rail shows device name + model",
-                   kn8_rail == "SPARK 30C (TECNO KN8)", kn8_rail)
+        self.check("rail shows model + product name",
+                   kn8_rail == "TECNO KN8 (SPARK 30C)", kn8_rail)
         unauth_rail = page.locator(
             '.rail-row[data-serial="R58MDEMO"] .rail-model').inner_text()
         self.check("unauthorized rail uses model hint",
