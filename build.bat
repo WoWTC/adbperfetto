@@ -18,7 +18,7 @@ if errorlevel 1 (
     echo Could not compute the version from git.
     exit /b 1
 )
-for /f "delims=" %%n in ('".venv\Scripts\python.exe" -c "from adbperfetto._buildinfo import EXE_NAME; print(EXE_NAME)"') do set EXE_NAME=%%n
+for /f "delims=" %%n in ('.venv\Scripts\python.exe -c "from adbperfetto._buildinfo import EXE_NAME; print(EXE_NAME)"') do set EXE_NAME=%%n
 ".venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean adbperfetto.spec
 set RC=%errorlevel%
 del /q adbperfetto\_buildinfo.py 2>nul
