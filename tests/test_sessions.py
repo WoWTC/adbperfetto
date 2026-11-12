@@ -549,6 +549,23 @@ class ManagerTests(unittest.TestCase):
             finally:
                 manager.shutdown()
 
+    def test_snapshot_marks_wifi_serial(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            adb = make_record_adb()
+            wifi = "192.168.1.23:5555"
+            adb.device_list = [(wifi, "device"), (SERIAL, "device")]
+            manager = SessionManager(**manager_kwargs(tmp, adb))
+            try:
+                self.assertTrue(wait_for(
+                    lambda: wifi in manager.devices
+                    and SERIAL in manager.devices, 10))
+                snap = manager.snapshot()
+                by_serial = {d["serial"]: d for d in snap["devices"]}
+                self.assertTrue(by_serial[wifi]["wifi"])
+                self.assertFalse(by_serial[SERIAL]["wifi"])
+            finally:
+                manager.shutdown()
+
     def test_orphan_record_and_adopt(self):
         with tempfile.TemporaryDirectory() as tmp:
             adb = make_record_adb()

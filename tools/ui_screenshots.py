@@ -1,4 +1,4 @@
-"""Generate the 14 review screenshots against a demo server.
+"""Generate the 15 review screenshots against a demo server.
 
 Run:  .venv\\Scripts\\python tools\\ui_screenshots.py
 Output: %TEMP%\\adbperfetto_shots\\NN_name.png
@@ -19,6 +19,7 @@ BASE = f"http://127.0.0.1:{PORT}"
 KN8 = "KN8DEMO0001"
 PIXEL = "PIXEL7DEMO"
 REALME = "R58MDEMO"
+WIFI = "192.168.1.23:5555"
 OUT = Path(tempfile.gettempdir()) / "adbperfetto_shots"
 
 from playwright.sync_api import sync_playwright
@@ -134,7 +135,7 @@ class Shots:
                     "03_recording_disconnected", "05_done_mobilelog",
                     "06_flight_running", "07_flight_stop_modal",
                     "10_configs_builder_ftrace", "11_editor_error",
-                    "13_narrow_860",
+                    "13_narrow_860", "15_wifi_header",
                 }
                 if light_only:
                     http("/api/settings", {"theme": "light"},
@@ -364,6 +365,13 @@ class Shots:
                      has_text="飞行").wait_for(timeout=10000)
         page.wait_for_timeout(400)
         self.shot(page, "14_pixel_flight_one_shot_notice")
+
+        # 15 wifi device header warning
+        self.select(page, WIFI)
+        page.wait_for_selector(".dev-head .hint.amber",
+                               timeout=10000)
+        page.wait_for_timeout(400)
+        self.shot(page, "15_wifi_header")
 
 
 if __name__ == "__main__":

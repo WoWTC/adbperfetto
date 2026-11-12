@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import VERSION, pbtx
-from .adb import AdbError
+from .adb import AdbError, is_wifi_serial
 from .device import DeviceInfo, probe
 from .mobilelog import MobileLog, other_log_names
 from . import outputs
@@ -1476,6 +1476,7 @@ class SessionManager:
             devices.append({
                 "serial": serial,
                 "state": entry["state"],
+                "wifi": is_wifi_serial(serial),
                 "info": info.to_dict() if info else None,
                 "orphan": self.orphans.get(serial),
                 "session": session.api_dict() if session else None,
@@ -1487,6 +1488,7 @@ class SessionManager:
             devices.append({
                 "serial": serial,
                 "state": "disconnected",
+                "wifi": is_wifi_serial(serial),
                 "info": info.to_dict() if info else None,
                 "orphan": self.orphans.get(serial),
                 "session": session.api_dict(),

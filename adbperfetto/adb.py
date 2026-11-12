@@ -1,3 +1,4 @@
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -8,6 +9,13 @@ CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 class AdbError(Exception):
     pass
+
+
+def is_wifi_serial(serial: str) -> bool:
+    """True for adb Wi-Fi serials: ip:port or mDNS service names."""
+    return (re.fullmatch(r".+:\d+", serial) is not None
+            or "._adb-tls-connect._tcp" in serial
+            or "._adb._tcp" in serial)
 
 
 @dataclass

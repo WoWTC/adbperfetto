@@ -87,6 +87,8 @@ def default_devices() -> dict[str, DemoDevice]:
                    hardware="gs201", perfetto="v39.0"),
         DemoDevice("R58MDEMO", "R58M", "TECNO", "R58M-TEST",
                    33, "13", "R58M-13.0.0.001DEMO", state="unauthorized"),
+        DemoDevice("192.168.1.23:5555", "Pixel 8", "Google", "shiba",
+                   35, "15", "AP3A.241005.015.DEMO", hardware="zuma"),
     ):
         devices[dev.serial] = dev
     return devices

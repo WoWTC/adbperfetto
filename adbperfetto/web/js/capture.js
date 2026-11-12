@@ -364,6 +364,9 @@ export function createCapture(deps) {
       head.appendChild(el("div", "hint amber",
                            t("hint.disconnected")));
     }
+    if (dev.wifi) {
+      head.appendChild(el("div", "hint amber", t("hint.wifi")));
+    }
     return head;
   }
 

@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parent.parent
 PORT = 8971
 BASE = f"http://127.0.0.1:{PORT}"
 KN8 = "KN8DEMO0001"
+WIFI = "192.168.1.23:5555"
 
 sys.path.insert(0, str(ROOT))
 try:
@@ -119,6 +120,7 @@ class Smoke:
                 self.test_language(page)
                 self.test_theme(page)
                 self.test_prefs(page)
+                self.test_wifi_hint(page)
                 browser.close()
         finally:
             self.stop_server()
@@ -352,6 +354,27 @@ class Smoke:
         wait_for(lambda: http("/api/prefs").get(KN8, {}).get("mode")
                  == "record", timeout=10, what="record mode saved")
         self.check("record mode restored", True)
+
+    def test_wifi_hint(self, page):
+        print("wifi hint")
+        page.locator(f'.rail-row[data-serial="{WIFI}"]').click()
+        page.wait_for_timeout(500)
+
+        def hint_texts():
+            hints = page.locator(".dev-head .hint.amber")
+            return [hints.nth(i).inner_text()
+                    for i in range(hints.count())]
+
+        wait_for(lambda: any("WiFi" in text
+                             for text in hint_texts()),
+                 timeout=10, what="wifi hint on wifi device")
+        self.check("wifi device shows wifi hint", True)
+
+        self.select_kn8(page)
+        texts = hint_texts()
+        self.check("usb device has no wifi hint",
+                   not any("WiFi" in text for text in texts),
+                   str(texts))
 
 
 if __name__ == "__main__":

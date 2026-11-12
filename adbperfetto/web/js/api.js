@@ -40,20 +40,26 @@ export const api = {
   render: (text, model) => req("POST", "/api/config/render", { text, model }),
   preview: (args) => req("POST", "/api/config/preview", args),
   builtinLists: () => req("GET", "/api/builtin-lists"),
-  atrace: (serial) => req("GET", `/api/devices/${serial}/atrace`),
-  ftrace: (serial) => req("GET", `/api/devices/${serial}/ftrace`),
+  atrace: (serial) =>
+    req("GET", `/api/devices/${encodeURIComponent(serial)}/atrace`),
+  ftrace: (serial) =>
+    req("GET", `/api/devices/${encodeURIComponent(serial)}/ftrace`),
 
   record: (serial, body) =>
-    req("POST", `/api/devices/${serial}/record`, body),
+    req("POST", `/api/devices/${encodeURIComponent(serial)}/record`, body),
   flight: (serial, body) =>
-    req("POST", `/api/devices/${serial}/flight`, body),
+    req("POST", `/api/devices/${encodeURIComponent(serial)}/flight`, body),
   stop: (serial, saveSnapshot) =>
-    req("POST", `/api/devices/${serial}/stop`,
+    req("POST", `/api/devices/${encodeURIComponent(serial)}/stop`,
         { save_snapshot: !!saveSnapshot }),
-  snapshot: (serial) => req("POST", `/api/devices/${serial}/snapshot`),
-  adopt: (serial) => req("POST", `/api/devices/${serial}/adopt`),
-  dismiss: (serial) => req("POST", `/api/devices/${serial}/dismiss`),
-  abandon: (serial) => req("POST", `/api/devices/${serial}/abandon`),
+  snapshot: (serial) =>
+    req("POST", `/api/devices/${encodeURIComponent(serial)}/snapshot`),
+  adopt: (serial) =>
+    req("POST", `/api/devices/${encodeURIComponent(serial)}/adopt`),
+  dismiss: (serial) =>
+    req("POST", `/api/devices/${encodeURIComponent(serial)}/dismiss`),
+  abandon: (serial) =>
+    req("POST", `/api/devices/${encodeURIComponent(serial)}/abandon`),
 
   reveal: (path) => req("POST", "/api/outputs/reveal", { path }),
   openDir: () => req("POST", "/api/outputs/open-dir"),
