@@ -16,7 +16,8 @@ a = Analysis(
         ("adbperfetto/presets", "adbperfetto/presets"),
     ],
     hiddenimports=collect_submodules("uvicorn")
-                  + collect_submodules("pystray"),
+                  + collect_submodules("pystray")
+                  + ["adbperfetto._buildinfo"],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

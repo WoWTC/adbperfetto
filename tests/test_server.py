@@ -5,6 +5,8 @@ from unittest import mock
 
 from fastapi.testclient import TestClient
 
+import adbperfetto
+
 from adbperfetto.adb import Result
 from adbperfetto.paths import resource_dir
 from adbperfetto.presets import PresetStore, Settings
@@ -52,6 +54,7 @@ class ServerTests(unittest.TestCase):
         payload = self.client.get("/api/ping").json()
         self.assertEqual(payload["app"], "adbperfetto")
         self.assertIn("version", payload)
+        self.assertIn("build", payload)
 
     def test_ui_assets_revalidate(self):
         response = self.client.get("/static/js/capture.js")
@@ -62,7 +65,9 @@ class ServerTests(unittest.TestCase):
 
     def test_state_shape_and_device(self):
         payload = self.client.get("/api/state").json()
-        self.assertEqual(payload["version"], "2.0.1")
+        self.assertEqual(payload["version"], adbperfetto.VERSION)
+        self.assertRegex(payload["version"], r"^2\.0\.\d+$")
+        self.assertEqual(payload["build"], adbperfetto.BUILD)
         self.assertTrue(payload["adb_ok"])
         self.assertEqual(payload["devices"][0]["serial"], SERIAL)
         self.assertEqual(payload["devices"][0]["info"]["model"],

@@ -14,7 +14,7 @@ from pathlib import Path
 
 import uvicorn
 
-from . import VERSION, paths
+from . import BUILD, VERSION, paths
 from .adb import Adb, AdbError
 from .presets import DevicePrefs, PresetStore, Settings
 from .server import create_app
@@ -81,7 +81,7 @@ def main(argv=None) -> int:
     parser.add_argument("--version", action="store_true")
     args = parser.parse_args(argv)
     if args.version:
-        print(f"adbperfetto {VERSION}")
+        print(f"adbperfetto {VERSION} ({BUILD})")
         return 0
 
     logging.basicConfig(
@@ -173,7 +173,7 @@ def _run(args, log) -> int:
 
     icon = start_tray(url, request_quit) if tray else None
 
-    print(f"adbperfetto {VERSION}")
+    print(f"adbperfetto {VERSION} ({BUILD})")
     if demo:
         print("DEMO MODE (ADBPERFETTO_DEMO=1) - simulated devices, "
               "no real adb")

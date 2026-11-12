@@ -5,7 +5,7 @@ import subprocess
 import zipfile
 from pathlib import Path
 
-from . import VERSION
+from . import BUILD, VERSION
 
 LOG_TYPES = ("main_log", "kernel_log", "sys_log", "events_log")
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -104,7 +104,7 @@ def device_info_text(info, serial: str, *, mode: str, preset_name: str,
     fingerprint = getattr(info, "fingerprint", "") if info else ""
     release = getattr(info, "release", "") if info else ""
     text = (
-        f"Tool: adbperfetto {VERSION}\n"
+        f"Tool: adbperfetto {VERSION} ({BUILD})\n"
         f"Mode: {mode}\nPreset: {preset_name}\n"
         f"Serial: {serial}\nModel: {model}\nDevice: {device}\n"
         f"Build display ID: {build_id}\nFingerprint: {fingerprint}\n"

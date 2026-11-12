@@ -597,7 +597,7 @@ function renderHeaderInfo() {
   const ver = app.state && app.state.version;
   const vnode = $("#app-version");
   vnode.textContent = ver ? `v${ver}` : "";
-  vnode.title = ver ? `adbperfetto ${ver}` : "";
+  vnode.title = (app.state && app.state.build) || "";
   const dir = (app.state && app.state.output_dir) ||
     app.settings.output_dir || "";
   const node = $("#out-path");

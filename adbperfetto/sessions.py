@@ -29,7 +29,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import VERSION, pbtx
+from . import BUILD, VERSION, pbtx
 from .adb import AdbError, is_wifi_serial
 from .device import DeviceInfo, probe
 from .mobilelog import MobileLog, other_log_names
@@ -1530,6 +1530,7 @@ class SessionManager:
             })
         return {
             "version": VERSION,
+            "build": BUILD,
             "output_dir": str(self._output_path()),
             "adb_ok": self.adb_ok,
             "adb_error": self.adb_error,

@@ -9,8 +9,18 @@ if not exist ".venv\Scripts\python.exe" (
     echo   .venv\Scripts\python -m pip install -r requirements.txt -r requirements-dev.txt
     exit /b 1
 )
-".venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean adbperfetto.spec
+rem Bake the git-derived version into adbperfetto\_buildinfo.py so the
+rem exe never calls git at runtime; removed again below on any outcome.
+".venv\Scripts\python.exe" tools\write_buildinfo.py
 if errorlevel 1 (
+    del /q adbperfetto\_buildinfo.py 2>nul
+    echo Could not compute the version from git.
+    exit /b 1
+)
+".venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean adbperfetto.spec
+set RC=%errorlevel%
+del /q adbperfetto\_buildinfo.py 2>nul
+if not "%RC%"=="0" (
     echo Build failed.
     exit /b 1
 )

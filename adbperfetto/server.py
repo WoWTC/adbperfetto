@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import VERSION, builder, outputs, paths, pbtx
+from . import BUILD, VERSION, builder, outputs, paths, pbtx
 from .adb import AdbError
 from .device import atrace_categories, ftrace_events
 from .presets import DevicePrefs
@@ -103,7 +103,8 @@ def create_app(manager, presets, settings, quit_hook=None,
 
     @app.get("/api/ping")
     def ping():
-        return {"app": "adbperfetto", "version": VERSION}
+        return {"app": "adbperfetto", "version": VERSION,
+                "build": BUILD}
 
     @app.get("/api/state")
     def state():
