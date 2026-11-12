@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>adbperfetto — 操作说明 / User Guide</title>
+<style>
+  :root {
+    --bg-outer: #EAE7DF;
+    --bg-paper: #FAF9F5;
+    --bg-subtle: #F2EFE7;
+    --bg-key: #F5F3EC;
+    --rule: #DFDBD0;
+    --rule-strong: #242320;
+    --ink: #191918;
+    --ink-body: #302F2C;
+    --muted: #6A675F;
+    --signal: #C93018;
+    --live: #157A46;
+    --amber: #A65B00;
+    --font: "Segoe UI Variable Text", "Segoe UI", "PingFang SC",
+            "Hiragino Sans GB", "Microsoft YaHei UI", system-ui, sans-serif;
+    --mono: "Cascadia Mono", Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg-outer);
+    color: var(--ink-body);
+    font-family: var(--font);
+    font-size: 16px;
+    line-height: 1.75;
+    padding: 36px 18px 64px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  html[data-lang="en"] body {
+    line-height: 1.68;
+  }
+
+  html[data-lang="zh"] [lang-en] { display: none !important; }
+  html[data-lang="en"] [lang-zh] { display: none !important; }
+
+  .sheet {
+    max-width: 780px;
+    margin: 0 auto;
+    background: var(--bg-paper);
+    border: 1px solid #D4CFC3;
+    border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(25, 25, 24, 0.05),
+                0 1px 3px rgba(25, 25, 24, 0.04);
+    overflow: hidden;
+  }
+
+  .masthead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 26px 40px 24px;
+    border-bottom: 2px solid var(--rule-strong);
+  }
+  .brand-group {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .brand {
+    font-size: 23px;
+    font-weight: 800;
+    color: var(--ink);
+    letter-spacing: -0.02em;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .brand-led {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--signal);
+    flex-shrink: 0;
+  }
+  .doc-title {
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--muted);
+  }
+
+  .lang-toggle {
+    display: inline-flex;
+    background: var(--bg-subtle);
+    border: 1px solid var(--rule);
+    border-radius: 7px;
+    padding: 3px;
+    flex-shrink: 0;
+  }
+  .lang-btn {
+    border: none;
+    background: transparent;
+    padding: 5px 13px;
+    border-radius: 5px;
+    font-family: inherit;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .lang-btn:focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 1px;
+  }
+  .lang-btn.active {
+    background: var(--bg-paper);
+    color: var(--ink);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.07);
+  }
+
+  .section {
+    padding: 34px 40px 36px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .section:last-child {
+    border-bottom: none;
+  }
+  .section-tinted {
+    background: var(--bg-subtle);
+  }
+
+  .sec-header {
+    margin-bottom: 20px;
+  }
+  .sec-title-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+  .section h2 {
+    font-size: 21px;
+    font-weight: 700;
+    color: var(--ink);
+    letter-spacing: -0.015em;
+    line-height: 1.35;
+  }
+  .sec-lead {
+    font-size: 15.5px;
+    color: var(--muted);
+  }
+  .sec-lead b {
+    color: var(--ink);
+  }
+  .output-tag {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--muted);
+    background: var(--bg-subtle);
+    border: 1px solid var(--rule);
+    border-radius: 5px;
+    padding: 2px 9px;
+    white-space: nowrap;
+  }
+
+  .quick-nav {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-top: 22px;
+  }
+  .nav-card {
+    display: block;
+    background: var(--bg-paper);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 16px 20px;
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 0.15s, transform 0.15s;
+  }
+  .nav-card:hover {
+    border-color: var(--ink);
+  }
+  .nav-card-eyebrow {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--signal);
+    margin-bottom: 3px;
+  }
+  .nav-card:last-child .nav-card-eyebrow {
+    color: var(--muted);
+  }
+  .nav-card-title {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--ink);
+    margin-bottom: 4px;
+  }
+  .nav-card-desc {
+    font-size: 14.5px;
+    color: var(--muted);
+    line-height: 1.55;
+  }
+
+  .deck-preview {
+    background: var(--bg-subtle);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .mock-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--signal);
+    color: #FFFFFF;
+    font-size: 14px;
+    font-weight: 700;
+    padding: 7px 15px;
+    border-radius: 6px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18),
+                0 1px 2px rgba(0, 0, 0, 0.14);
+    white-space: nowrap;
+  }
+  .glyph-rec {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #FFFFFF;
+  }
+  .glyph-stop {
+    width: 8px;
+    height: 8px;
+    background: #FFFFFF;
+  }
+  .glyph-snap {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    border: 2px solid #FFFFFF;
+  }
+  .flow-line {
+    flex: 1;
+    min-width: 60px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13.5px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .flow-line::before,
+  .flow-line::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: #CFCAC0;
+  }
+
+  .step-list {
+    list-style: none;
+    display: grid;
+    gap: 20px;
+  }
+  .step-list li {
+    display: grid;
+    grid-template-columns: 30px 1fr;
+    gap: 14px;
+    align-items: baseline;
+  }
+  .step-num {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 700;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--bg-subtle);
+    border: 1px solid #CFCAC0;
+    color: var(--ink);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .section-tinted .step-num {
+    background: var(--bg-paper);
+  }
+  .step-main {
+    font-size: 16px;
+    color: var(--ink-body);
+  }
+  .step-main b {
+    color: var(--ink);
+    font-weight: 700;
+  }
+  .step-sub {
+    display: block;
+    margin-top: 5px;
+    font-size: 14.5px;
+    line-height: 1.6;
+    color: var(--muted);
+  }
+
+  .keycap {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-key);
+    border: 1px solid #C9C4B8;
+    border-bottom-width: 2px;
+    border-radius: 5px;
+    padding: 1px 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ink);
+    line-height: 1.5;
+    white-space: nowrap;
+  }
+  .section-tinted .keycap {
+    background: var(--bg-paper);
+  }
+  .keycap .dot-rec {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--signal);
+  }
+  .status-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14.5px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .status-chip.ready { color: var(--live); }
+  .status-chip.ready::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--live);
+  }
+  .status-chip.warn { color: var(--amber); }
+  .status-chip.warn::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--amber);
+  }
+  .mono {
+    font-family: var(--mono);
+    font-size: 14px;
+    background: var(--bg-subtle);
+    border: 1px solid var(--rule);
+    padding: 1px 7px;
+    border-radius: 4px;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+  .section-tinted .mono {
+    background: var(--bg-paper);
+  }
+
+  .guardrail {
+    margin-top: 24px;
+    padding: 14px 18px;
+    background: var(--bg-subtle);
+    border-left: 3px solid var(--ink);
+    border-radius: 0 6px 6px 0;
+    font-size: 14.5px;
+    line-height: 1.65;
+    color: var(--ink-body);
+  }
+  .guardrail.critical {
+    border-left-color: var(--signal);
+  }
+  .guardrail b {
+    color: var(--ink);
+  }
+
+  .faq-list {
+    display: grid;
+    gap: 18px;
+  }
+  .faq-row {
+    padding-top: 18px;
+    border-top: 1px solid var(--rule);
+  }
+  .faq-row:first-child {
+    padding-top: 4px;
+    border-top: none;
+  }
+  .faq-q {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--ink);
+    margin-bottom: 4px;
+  }
+  .faq-a {
+    font-size: 15px;
+    color: var(--muted);
+    line-height: 1.65;
+  }
+  .faq-a b {
+    color: var(--ink-body);
+  }
+
+  @media (max-width: 640px) {
+    body { padding: 14px 10px 36px; font-size: 15.5px; }
+    .masthead, .section {
+      padding-left: 22px;
+      padding-right: 22px;
+    }
+    .quick-nav { grid-template-columns: 1fr; gap: 12px; }
+    .deck-preview {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+    }
+    .mock-trigger { justify-content: center; }
+    .flow-line { justify-content: center; }
+  }
+
+  @media print {
+    body { background: #FFFFFF; padding: 0; font-size: 14px; }
+    .sheet { border: none; box-shadow: none; max-width: none; }
+    .lang-toggle { display: none; }
+    .section { break-inside: avoid; padding: 22px 0; }
+  }
+</style>
+</head>
+<body>
+
+<main class="sheet">
+
+  <header class="masthead">
+    <div class="brand-group">
+      <span class="brand"><span class="brand-led"></span>adbperfetto</span>
+      <span class="doc-title" lang-zh>Trace 与 MobileLog 采集操作说明</span>
+      <span class="doc-title" lang-en>Quick Guide: Trace &amp; MobileLog Capture</span>
+    </div>
+    <div class="lang-toggle" role="group" aria-label="Language">
+      <button class="lang-btn" id="btn-zh" onclick="setLang('zh')">中文</button>
+      <button class="lang-btn" id="btn-en" onclick="setLang('en')">English</button>
+    </div>
+  </header>
+
+  <section class="section section-tinted">
+    <div class="sec-header">
+      <div class="sec-title-row">
+        <h2 lang-zh>准备工作（每台手机只需设置一次）</h2>
+        <h2 lang-en>Before You Start (One-time phone setup)</h2>
+      </div>
+      <p class="sec-lead" lang-zh>连接好手机即可直接开始，<b>无需修改任何配置参数</b>（所有预设与时长已默认配好）。</p>
+      <p class="sec-lead" lang-en>Connect the phone and start right away &mdash; <b>do not change any config settings</b> (all presets are pre-configured).</p>
+    </div>
+
+    <ol class="step-list">
+      <li>
+        <span class="step-num">1</span>
+        <div class="step-main">
+          <span lang-zh><b>打开手机 USB 调试：</b>进入手机「设置 &gt; 关于手机」，连续点击 7 次<b>版本号</b>；返回进入「开发者选项」，打开 <b>USB 调试</b>。<span class="step-sub">传音测试机（TECNO / Infinix / itel）也可以直接在拨号盘输入 <span class="mono">*#*#800#*#*</span> 开启。</span></span>
+          <span lang-en><b>Turn on USB debugging:</b> On the phone, open <i>Settings &gt; About phone</i> and tap <b>Build number</b> 7 times. Go back to <i>Developer options</i> and turn on <b>USB debugging</b>.<span class="step-sub">On TECNO / Infinix / itel test builds, you can also dial <span class="mono">*#*#800#*#*</span>.</span></span>
+        </div>
+      </li>
+      <li>
+        <span class="step-num">2</span>
+        <div class="step-main">
+          <span lang-zh><b>连接电脑并点按“允许”：</b>用 USB 数据线连接手机与电脑，在手机弹出的授权框中勾选<b>「始终允许使用这台计算机」</b>，点击<b>「允许」</b>。</span>
+          <span lang-en><b>Plug in the USB cable &amp; tap Allow:</b> Connect the phone to your PC. On the phone popup, tick <b>"Always allow from this computer"</b> and tap <b>"Allow"</b>.</span>
+        </div>
+      </li>
+      <li>
+        <span class="step-num">3</span>
+        <div class="step-main">
+          <span lang-zh><b>双击打开软件：</b>运行电脑上的 <span class="mono">adbperfetto-x.x.x.exe</span>，浏览器会自动打开页面，看到左侧手机旁显示 <span class="status-chip ready">就绪</span> 即可。<span class="step-sub">如需切换软件界面语言，点击页面右上角的 <span class="keycap">中 | EN</span> 即可。</span></span>
+          <span lang-en><b>Open the tool:</b> Double-click <span class="mono">adbperfetto-x.x.x.exe</span>. Your browser will open automatically (click <span class="keycap">EN</span> at the top-right for English). Wait until the phone shows <span class="status-chip ready">Ready</span>.</span>
+        </div>
+      </li>
+    </ol>
+
+    <div class="quick-nav">
+      <a class="nav-card" href="#mode-record">
+        <div class="nav-card-eyebrow" lang-zh>问题能复现（最常用）</div>
+        <div class="nav-card-eyebrow" lang-en>Reproducible now (Most common)</div>
+        <div class="nav-card-title" lang-zh>看「方式一：普通录制」</div>
+        <div class="nav-card-title" lang-en>Go to 1. Standard Record</div>
+        <div class="nav-card-desc" lang-zh>像录像机：点开始、复现问题、点停止，自动打包全套日志。</div>
+        <div class="nav-card-desc" lang-en>Start, trigger the bug, stop. Bundles Trace + MobileLog.</div>
+      </a>
+      <a class="nav-card" href="#mode-flight">
+        <div class="nav-card-eyebrow" lang-zh>偶现问题（不知何时出现）</div>
+        <div class="nav-card-eyebrow" lang-en>Random or rare freeze</div>
+        <div class="nav-card-title" lang-zh>看「方式二：飞行记录」</div>
+        <div class="nav-card-title" lang-en>Go to 2. Flight Recorder</div>
+        <div class="nav-card-desc" lang-zh>像行车记录仪：后台循环记最近几分钟，刚卡顿时存快照。</div>
+        <div class="nav-card-desc" lang-en>Keeps the last few minutes in memory until you save a snapshot.</div>
+      </a>
+    </div>
+  </section>
+
+  <section class="section" id="mode-record">
+    <div class="sec-header">
+      <div class="sec-title-row">
+        <h2 lang-zh>方式一：普通录制（同时抓 Trace + MobileLog）</h2>
+        <h2 lang-en>1. Standard Record (Trace + MobileLog)</h2>
+        <span class="output-tag">.zip / .pftrace</span>
+      </div>
+      <p class="sec-lead" lang-zh><b>适合：现在就能操作复现的问题</b>（例如点开应用卡顿、掉帧、启动慢、功能异常）。</p>
+      <p class="sec-lead" lang-en><b>Best for issues you can trigger right now</b> (such as app lag, frame drops, slow launch, or functional bugs).</p>
+    </div>
+
+    <div class="deck-preview" aria-hidden="true">
+      <span class="mock-trigger"><span class="glyph-rec"></span><span lang-zh>开始录制（含 MobileLog）</span><span lang-en>Start recording + MobileLog</span></span>
+      <span class="flow-line"><span lang-zh>手机复现问题</span><span lang-en>reproduce on phone</span></span>
+      <span class="mock-trigger"><span class="glyph-stop"></span><span lang-zh>停止并保存</span><span lang-en>Stop and save</span></span>
+    </div>
+
+    <ol class="step-list">
+      <li>
+        <span class="step-num">1</span>
+        <div class="step-main">
+          <span lang-zh>在页面下方「采集参数」中，确认模式为 <span class="keycap">录制</span>，并打开 <b>同时抓取 MobileLog</b> 开关。<span class="step-sub">MTK 芯片手机连接后默认已自动打开该开关。</span></span>
+          <span lang-en>Under "Capture setup", keep Mode on <span class="keycap">Record</span> and make sure <b>Also capture MobileLog</b> is turned ON.<span class="step-sub">This switch is turned on automatically on MTK phones.</span></span>
+        </div>
+      </li>
+      <li>
+        <span class="step-num">2</span>
+        <div class="step-main">
+          <span lang-zh>点击左上角红色按钮 <span class="keycap"><span class="dot-rec"></span>开始录制（含 MobileLog）</span>。<span class="step-sub">不支持 MobileLog 的机型会显示为「开始录制」，直接点击即可。</span></span>
+          <span lang-en>Click the red button <span class="keycap"><span class="dot-rec"></span>Start recording + MobileLog</span>.<span class="step-sub">On phones without MobileLog support, the button says "Start recording".</span></span>
+        </div>
+      </li>
+      <li>
+        <span class="step-num">3</span>
+        <div class="step-main">
+          <span lang-zh><b>在手机上复现问题，并记下问题发生时的手机时间（例如 14:32）。</b><span class="step-sub">如果需要手持或出门测试，开始录制后<b>可以直接拔掉 USB 数据线</b>，手机自己会继续录制。</span></span>
+          <span lang-en><b>Reproduce the issue on the phone, and write down the phone clock time (e.g. 14:32).</b><span class="step-sub">Need to test unplugged? <b>You can unplug the USB cable now</b> &mdash; the phone keeps recording on its own.</span></span>
+        </div>
+      </li>
+      <li>
+        <span class="step-num">4</span>
+        <div class="step-main">
+          <span lang-zh>复现完成后，插回数据线，点击 <span class="keycap"><span class="dot-rec"></span>停止并保存</span>。<span class="step-sub">等保存完成出现对勾后，点击 <span class="keycap">在文件夹中显示</span>，把生成的 <span class="mono">.zip</span> 压缩包和<b>问题发生时间点</b>一起发给研发。</span></span>
+          <span lang-en>Plug the USB cable back in and click <span class="keycap"><span class="dot-rec"></span>Stop and save</span>.<span class="step-sub">Once finished, click <span class="keycap">Show in folder</span> and send the <span class="mono">.zip</span> file + <b>issue time</b> to the engineer.</span></span>
+        </div>
+      </li>
+    </ol>
+
+    <div class="guardrail critical">
+      <span lang-zh><b>两个必看注意：</b>页面显示「保存中…」时<b>千万不要拔掉数据线</b>；抓完生成的 <span class="mono">.zip</span> 压缩包<b>请不要解压或删改</b>，原封不动直接发送。</span>
+      <span lang-en><b>Important:</b> <b>Never unplug the cable</b> while it says "Saving…". Send the generated <span class="mono">.zip</span> bundle <b>as-is without unzipping</b>.</span>
+    </div>
+  </section>
+
+  <section class="section" id="mode-flight">
+    <div class="sec-header">
+      <div class="sec-title-row">
+        <h2 lang-zh>方式二：飞行记录（专抓偶现问题）</h2>
+        <h2 lang-en>2. Flight Recorder (For Random / Rare Issues)</h2>
+        <span class="output-tag">.pftrace</span>
+      </div>
+      <p class="sec-lead" lang-zh><b>适合：不知道什么时候才出现的偶现卡顿</b>（可能用半天手机才遇到一次）。</p>
+      <p class="sec-lead" lang-en><b>Best for unpredictable freezes</b> that only happen occasionally during daily use.</p>
+    </div>
+
+    <div class="deck-preview" aria-hidden="true">
+      <span class="mock-trigger"><span class="glyph-rec"></span><span lang-zh>启动飞行记录</span><span lang-en>Start flight recorder</span></span>
+      <span class="flow-line"><span lang-zh>问题刚出现 1 分钟内</span><span lang-en>within 1 min after bug</span></span>
+      <span class="mock-trigger"><span class="glyph-snap"></span><span lang-zh>保存快照</span><span lang-en>Save snapshot</span></span>
+    </div>
+
+    <ol class="step-list">
+      <li>
+        <span class="step-num">1</span>
+        <div class="step-main">
+          <span lang-zh>在页面下方「采集参数」中，把模式切换为 <span class="keycap">飞行记录</span>。</span>
+          <span lang-en>Under "Capture setup", switch Mode to <span class="keycap">Flight recorder</span>.</span>
+        </div>
+      </li>
+      <li>
+        <span class="step-num">2</span>
+        <div class="step-main">
+          <span lang-zh>点击左上角红色按钮 <span class="keycap"><span class="dot-rec"></span>启动飞行记录</span>。<span class="step-sub">启动成功后<b>可以拔掉数据线</b>，像平时一样正常使用手机。</span></span>
+          <span lang-en>Click the red button <span class="keycap"><span class="dot-rec"></span>Start flight recorder</span>.<span class="step-sub">Once started, <b>you can unplug the USB cable</b> and use the phone normally.</span></span>
+        </div>
+      </li>
+      <li>
+        <span class="step-num">3</span>
+        <div class="step-main">
+          <span lang-zh><b>一旦问题刚刚出现，请立即（1 分钟内）把手机插回电脑</b>，点击 <span class="keycap"><span class="dot-rec"></span>保存快照</span>（或按键盘 <span class="mono">S</span> 键），并记下手机时间。<span class="step-sub">手机内存只循环保留最近几分钟，太晚保存会把刚才的问题画面覆盖掉。Android 15 及以上支持多次保存快照；全部测试结束后点旁边的 <span class="keycap">停止</span> 即可。</span></span>
+          <span lang-en><b>Within 1 minute after the problem happens, plug the phone back into the PC</b>, click <span class="keycap"><span class="dot-rec"></span>Save snapshot</span> (or press <span class="mono">S</span>), and note the phone time.<span class="step-sub">Only the last few minutes are kept in memory, so save promptly! When all testing is done, click <span class="keycap">Stop</span>.</span></span>
+        </div>
+      </li>
+      <li>
+        <span class="step-num">4</span>
+        <div class="step-main">
+          <span lang-zh>在文件列表旁点击 <span class="keycap">显示</span>，把保存下来的 <span class="mono">.pftrace</span> 文件和<b>问题发生时间点</b>发给研发。</span>
+          <span lang-en>Click <span class="keycap">Show</span> next to the saved snapshot, and send the <span class="mono">.pftrace</span> file + <b>issue time</b> to the engineer.</span>
+        </div>
+      </li>
+    </ol>
+
+    <div class="guardrail">
+      <span lang-zh><b>如果研发要求偶现问题也提供 MobileLog：</b>飞行记录只保存轻量 Trace 快照；可在开始测试前先用手机拨号 <span class="mono">*#*#800#*#*</span> 手动打开 MobileLog，抓完快照后再导出手机日志。</span>
+      <span lang-en><b>Need MobileLog too?</b> Flight mode only saves lightweight Trace files. If engineers also ask for MobileLog, turn it on manually on the phone (<span class="mono">*#*#800#*#*</span>) before testing.</span>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="sec-header">
+      <h2 lang-zh>常见问题处理</h2>
+      <h2 lang-en>Quick Troubleshooting</h2>
+    </div>
+
+    <div class="faq-list">
+      <div class="faq-row">
+        <div class="faq-q" lang-zh>1. 手机名字旁显示 <span class="status-chip warn">点按允许</span> 或 <span class="status-chip warn">离线</span> 怎么办？</div>
+        <div class="faq-q" lang-en>1. What if the phone shows <span class="status-chip warn">Tap Allow</span> or <span class="status-chip warn">Offline</span>?</div>
+        <div class="faq-a" lang-zh>请先解锁手机屏幕，在弹出的「允许 USB 调试吗？」窗口点<b>「允许」</b>。如果显示「离线」，请拔下 USB 数据线重插一次，尽量使用原装数据线。</div>
+        <div class="faq-a" lang-en>Unlock your phone screen and tap <b>Allow</b> on the USB debugging popup. If it shows "Offline", unplug and reconnect the USB cable.</div>
+      </div>
+
+      <div class="faq-row">
+        <div class="faq-q" lang-zh>2. 录制中途不小心把浏览器网页关掉了怎么办？</div>
+        <div class="faq-q" lang-en>2. Accidentally closed the browser tab while recording?</div>
+        <div class="faq-a" lang-zh><b>不用慌，手机还在继续录！</b>再次双击运行 <span class="mono">adbperfetto</span> 程序（或右键点击电脑右下角托盘小图标选 <span class="mono">Open</span>），网页就会重新打开并自动恢复进度。</div>
+        <div class="faq-a" lang-en><b>Don't worry &mdash; the phone is still recording!</b> Double-click <span class="mono">adbperfetto</span> again (or right-click the tray icon &gt; <span class="mono">Open</span>) to reopen the page.</div>
+      </div>
+
+      <div class="faq-row">
+        <div class="faq-q" lang-zh>3. 打开软件提示红色「ADB 不可用」？</div>
+        <div class="faq-q" lang-en>3. The page shows a red alert "ADB not available"?</div>
+        <div class="faq-a" lang-zh>说明这台电脑还没有安装安卓连接工具。请联系现场技术同事帮忙安装一次 <span class="mono">platform-tools (adb)</span>，之后重启本软件即可。</div>
+        <div class="faq-a" lang-en>Android <span class="mono">adb</span> is not installed on this PC yet. Ask technical support to install Android <span class="mono">platform-tools</span> once, then restart the app.</div>
+      </div>
+
+      <div class="faq-row">
+        <div class="faq-q" lang-zh>4. 录制完成后提示「部分文件缺失」？</div>
+        <div class="faq-q" lang-en>4. Result shows "Some files are missing"?</div>
+        <div class="faq-a" lang-zh>通常是因为刚点开始不到两秒就马上点了停止，手机日志还没来得及写入。点击 <span class="keycap">新录制</span>，重新录制至少 10 秒以上即可。</div>
+        <div class="faq-a" lang-en>Usually caused by stopping too fast (&lt; 2 seconds). Click <span class="keycap">New recording</span> and record for at least 10 seconds.</div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+  function setLang(lang) {
+    var v = lang === "en" ? "en" : "zh";
+    document.documentElement.setAttribute("data-lang", v);
+    document.getElementById("btn-zh").classList.toggle("active", v === "zh");
+    document.getElementById("btn-en").classList.toggle("active", v === "en");
+    try { localStorage.setItem("adbperfetto.guide.lang", v); } catch (e) {}
+  }
+  (function () {
+    var saved = null;
+    try { saved = localStorage.getItem("adbperfetto.guide.lang"); } catch (e) {}
+    if (saved === "zh" || saved === "en") {
+      setLang(saved);
+    } else {
+      var nav = (navigator.language || "").toLowerCase();
+      setLang(nav.indexOf("zh") === 0 ? "zh" : "en");
+    }
+  })();
+</script>
+</body>
+</html>
