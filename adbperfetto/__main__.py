@@ -20,6 +20,7 @@ from .presets import DevicePrefs, PresetStore, Settings
 from .server import create_app
 from .sessions import SessionManager
 from .state import StateStore
+from .tray import start_tray
 
 
 def _find_free_port(preferred: int) -> int:
@@ -52,12 +53,31 @@ def _existing_instance(data: Path):
     return None
 
 
+def _redirect_windowed_log() -> Path:
+    """PyInstaller console=False leaves sys.stdout/stderr as None; send
+    everything to adbperfetto_data/adbperfetto.log (rotated at 1 MB)."""
+    log_path = paths.data_dir() / "adbperfetto.log"
+    try:
+        if log_path.exists() and log_path.stat().st_size > 1024 * 1024:
+            os.replace(log_path, log_path.with_name("adbperfetto.log.1"))
+    except OSError:
+        pass
+    stream = open(log_path, "a", encoding="utf-8", buffering=1)
+    sys.stdout = stream
+    sys.stderr = stream
+    return log_path
+
+
 def main(argv=None) -> int:
+    windowed = sys.stdout is None or sys.stderr is None
+    log_path = _redirect_windowed_log() if windowed else None
     parser = argparse.ArgumentParser(
         prog="adbperfetto",
         description="Record and flight-recorder Perfetto traces over ADB.")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument("--tray", action=argparse.BooleanOptionalAction,
+                        default=None)
     parser.add_argument("--version", action="store_true")
     args = parser.parse_args(argv)
     if args.version:
@@ -66,9 +86,27 @@ def main(argv=None) -> int:
 
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        stream=sys.stderr)
     log = logging.getLogger("adbperfetto")
 
+    if not windowed:
+        return _run(args, log)
+    try:
+        return _run(args, log)
+    except Exception as exc:
+        log.exception("Fatal error")
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(
+            None,
+            f"adbperfetto failed to start:\n{exc}\n\nLog: {log_path}",
+            "adbperfetto", 0x10)
+        return 1
+
+
+def _run(args, log) -> int:
+    tray = args.tray if args.tray is not None else \
+        getattr(sys, "frozen", False)
     demo = os.environ.get("ADBPERFETTO_DEMO") == "1"
     if demo:
         data = Path(tempfile.mkdtemp(prefix="adbperfetto_demo_"))
@@ -125,9 +163,15 @@ def main(argv=None) -> int:
                      device_prefs=device_prefs)
     config.app = app
 
+    def request_quit():
+        shutdown_event.set()
+        server.should_exit = True
+
     (data / "instance.json").write_text(
         json.dumps({"port": port, "pid": os.getpid()}),
         encoding="utf-8")
+
+    icon = start_tray(url, request_quit) if tray else None
 
     print(f"adbperfetto {VERSION}")
     if demo:
@@ -136,8 +180,12 @@ def main(argv=None) -> int:
         print(f"Demo data: {data}")
         print(f"Demo output: {demo_output}")
     print(f"Web UI: {url}")
-    print("Keep this window open while capturing. Close it to quit; "
-          "recordings on the phone keep running and resume next time.")
+    if icon:
+        print("Running in the system tray. Use the tray icon or the "
+              "Quit button in the web UI to exit.")
+    else:
+        print("Keep this window open while capturing. Close it to quit; "
+              "recordings on the phone keep running and resume next time.")
 
     if not args.no_browser:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
@@ -147,6 +195,11 @@ def main(argv=None) -> int:
         pass
     finally:
         shutdown_event.set()
+        if icon is not None:
+            try:
+                icon.stop()
+            except Exception:
+                pass
         manager.shutdown()
         try:
             (data / "instance.json").unlink(missing_ok=True)
