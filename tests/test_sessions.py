@@ -1,7 +1,9 @@
+import os
 import re
 import tempfile
 import time
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -518,8 +520,20 @@ class StoppedAtTests(unittest.TestCase):
             loaded = RecordSession(**record_kwargs(tmp, adb))
             loaded._load_record(record)
             self.assertEqual(loaded.stopped_at, session.stopped_at)
-            # Old state files have no stopped_at: stays None.
             record.pop("stopped_at")
+            out = Path(tmp) / "old.pftrace"
+            out.write_bytes(b"x")
+            start = time.time() - 600
+            mtime = start + 27
+            os.utime(out, (mtime, mtime))
+            record["started_at"] = datetime.fromtimestamp(
+                start, tz=timezone.utc).isoformat()
+            record["outputs"] = [str(out)]
+            record["status"] = "done"
+            loaded._load_record(record)
+            self.assertAlmostEqual(loaded.stopped_at, mtime, places=3)
+            self.assertEqual(loaded.size_bytes, 1)
+            record["status"] = "recording"
             loaded._load_record(record)
             self.assertIsNone(loaded.stopped_at)
 

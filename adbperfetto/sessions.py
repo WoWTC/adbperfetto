@@ -284,6 +284,7 @@ class _Session:
             "started_at": datetime.fromtimestamp(
                 self.started_at, tz=timezone.utc).isoformat(),
             "stopped_at": self.stopped_at,
+            "size_bytes": self.size_bytes,
             "model": self.model,
             "info": (self.info.to_dict() if self.info is not None
                      else None),
@@ -369,6 +370,19 @@ class _Session:
         self.one_shot = record.get("one_shot", False)
         self.disconnects = list(record.get("disconnects", []))
         self.error = record.get("error")
+        self.size_bytes = record.get("size_bytes", 0)
+        if (self.stopped_at is None and
+                self.status in ("done", "failed", "ended", "abandoned")):
+            self._mark_stopped()
+            for out in self.outputs:
+                try:
+                    st = Path(out).stat()
+                except OSError:
+                    continue
+                self.stopped_at = max(self.started_at,
+                                      min(self.stopped_at, st.st_mtime))
+                self.size_bytes = self.size_bytes or st.st_size
+                break
         ml = record.get("mobilelog")
         if ml and ml.get("enabled"):
             self.mobilelog = MobileLog.from_state(

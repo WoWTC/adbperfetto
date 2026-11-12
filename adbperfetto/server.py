@@ -361,6 +361,13 @@ def create_app(manager, presets, settings, quit_hook=None,
 
     # -- static ------------------------------------------------------------------
 
+    @app.middleware("http")
+    async def revalidate_ui(request, call_next):
+        response = await call_next(request)
+        if not request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
     web_dir = paths.resource_dir() / "web"
     if web_dir.is_dir():
         app.mount("/static", StaticFiles(directory=web_dir), name="static")

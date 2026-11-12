@@ -53,6 +53,13 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(payload["app"], "adbperfetto")
         self.assertIn("version", payload)
 
+    def test_ui_assets_revalidate(self):
+        response = self.client.get("/static/js/capture.js")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["cache-control"], "no-cache")
+        self.assertNotIn("cache-control",
+                         self.client.get("/api/ping").headers)
+
     def test_state_shape_and_device(self):
         payload = self.client.get("/api/state").json()
         self.assertEqual(payload["version"], "2.0.1")
