@@ -67,8 +67,15 @@ function deviceStatus(dev) {
 }
 
 function elapsedS(session) {
+  if (session.status === "starting") return 0;
   const end = session.stopped_at || Date.now() / 1000;
   return Math.max(0, end - session.started_at);
+}
+
+// MobileLog defaults to on; unchecking persists false per device.
+function wantMobilelog(dev, prefs) {
+  if (!dev.info || !dev.info.has_mobilelog) return false;
+  return prefs.mobilelog === undefined ? true : !!prefs.mobilelog;
 }
 
 // Mirrors outputs.safe_filename on the backend.
@@ -479,20 +486,6 @@ export function createCapture(deps) {
       const buffer = el("span", "field-meta");
       ui.refs.buffer = buffer;
       row.appendChild(buffer);
-      if (dev.info && dev.info.has_mobilelog) {
-        const box = document.createElement("input");
-        box.type = "checkbox";
-        box.id = "inp-mobilelog";
-        box.checked = !!prefs.mobilelog;
-        box.disabled = !!running;
-        box.addEventListener("change", () => {
-          deps.setPrefs(dev.serial, { mobilelog: box.checked });
-        });
-        const mlLabel = el("label", "field check");
-        mlLabel.append(box, el("span", "field-label",
-                               t("record.mobilelog")));
-        row.appendChild(mlLabel);
-      }
     } else {
       const life = document.createElement("input");
       life.type = "number";
@@ -516,6 +509,27 @@ export function createCapture(deps) {
       row.appendChild(mem);
     }
     return row;
+  }
+
+  function mobilelogRow(dev, prefs) {
+    const s = dev.session;
+    const running = s && ACTIVE.has(s.status);
+    const wrap = el("div", "mobilelog-row");
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.id = "inp-mobilelog";
+    box.checked = wantMobilelog(dev, prefs);
+    box.disabled = !!running;
+    box.addEventListener("change", () => {
+      deps.setPrefs(dev.serial, { mobilelog: box.checked });
+    });
+    const mlLabel = el("label", "field check");
+    mlLabel.append(box, el("span", "field-label",
+                           t("record.mobilelog")));
+    wrap.appendChild(mlLabel);
+    wrap.appendChild(el("div", "hint dim mobilelog-hint",
+                        t("record.mobilelogHint")));
+    return wrap;
   }
 
   function readouts(dev, prefs) {
@@ -652,10 +666,12 @@ export function createCapture(deps) {
     if (!s) {
       if (!orphanShown) {
         const mode = prefs.mode || "record";
-        sec.appendChild(button(
-          "btn primary big",
-          mode === "record" ? t("btn.startRecord") : t("btn.startFlight"),
-          () => startSession(dev, prefs, mode)));
+        const label = mode === "record"
+          ? (wantMobilelog(dev, prefs) ? t("btn.startRecordMl")
+                                       : t("btn.startRecord"))
+          : t("btn.startFlight");
+        sec.appendChild(button("btn primary big", label,
+                               () => startSession(dev, prefs, mode)));
       }
       return sec;
     }
@@ -807,7 +823,7 @@ export function createCapture(deps) {
           duration_min: prefs.noLimit
             ? null
             : parseFloat(ui.refs.duration?.value || "0") || null,
-          mobilelog: !!prefs.mobilelog,
+          mobilelog: wantMobilelog(dev, prefs),
         });
       } else {
         await api.flight(dev.serial, {
@@ -924,6 +940,9 @@ export function createCapture(deps) {
       inner.appendChild(el("div", "hint dim", t("flight.explainer")));
     }
     inner.appendChild(inputsRow(dev, prefs));
+    if (mode === "record" && dev.info && dev.info.has_mobilelog) {
+      inner.appendChild(mobilelogRow(dev, prefs));
+    }
     if (mode === "flight" && !s && dev.info && dev.info.sdk &&
         !dev.info.supports_clone) {
       inner.appendChild(el("div", "hint amber", t("flight.oneShot")));

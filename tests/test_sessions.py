@@ -1,6 +1,7 @@
 import os
 import re
 import tempfile
+import threading
 import time
 import unittest
 from datetime import datetime, timezone
@@ -51,6 +52,8 @@ def make_record_adb():
     adb.det = 2
     adb.trace_size = 1234
     adb.pushed = []
+    adb.push_gate = None     # threading.Event delays the config push
+    adb.launch_time = 0.0
 
     @adb.on(r"echo DET=")
     def _monitor(ctx):
@@ -62,11 +65,14 @@ def make_record_adb():
 
     @adb.on(r"cat > ")
     def _push(ctx):
+        if adb.push_gate is not None:
+            adb.push_gate.wait(10)
         adb.pushed.append(ctx["input_text"])
         return Result(0, "", "")
 
     @adb.on(r"perfetto --txt -c .* --detach=")
     def _launch(ctx):
+        adb.launch_time = time.time()
         adb.det = 0
         return Result(0, "", "")
 
@@ -102,6 +108,8 @@ def make_flight_adb(query=QUERY_EMPTY, clone_delay=0.0):
     adb = FakeAdb()
     adb.alive = 0
     adb.pushed = []
+    adb.push_gate = None
+    adb.launch_time = 0.0
 
     @adb.on(r"perfetto --is_detached")
     def _detached(ctx):
@@ -113,11 +121,14 @@ def make_flight_adb(query=QUERY_EMPTY, clone_delay=0.0):
 
     @adb.on(r"cat > ")
     def _push(ctx):
+        if adb.push_gate is not None:
+            adb.push_gate.wait(10)
         adb.pushed.append(ctx["input_text"])
         return Result(0, "", "")
 
     @adb.on(r"--background-wait")
     def _launch(ctx):
+        adb.launch_time = time.time()
         adb.alive = 1
         return Result(0, "Connected to traced\n4321\n", "")
 
@@ -220,6 +231,27 @@ class RecordSessionTests(unittest.TestCase):
                                 for c in adb.shell_calls("perfetto-traces")))
             self.assertEqual(session.api_dict()["mode"], "record")
             self.assertFalse(session.ended_by_duration)
+
+    def test_started_at_tracks_launch(self):
+        """started_at is stamped at the perfetto launch, not at click."""
+        with tempfile.TemporaryDirectory() as tmp:
+            adb = make_record_adb()
+            adb.push_gate = threading.Event()  # hold the config push
+            session = RecordSession(**record_kwargs(tmp, adb))
+            session.start(CONFIG, "test", 60000)
+            click_started = session.started_at
+            time.sleep(0.05)
+            adb.push_gate.set()
+            self.assertTrue(wait_for(
+                lambda: session.status == "recording"))
+            self.assertGreater(session.started_at, click_started)
+            self.assertLessEqual(session.started_at, adb.launch_time)
+            self.assertLess(adb.launch_time - session.started_at, 1)
+            ts = datetime.fromtimestamp(session.started_at)
+            self.assertTrue(session.remote_path.endswith(
+                f"adbperfetto_{ts:%Y%m%d_%H%M%S}.pftrace"))
+            session.stop()
+            self.assertTrue(wait_for(lambda: session.status == "done", 10))
 
     def test_refuse_when_already_running(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -559,6 +591,27 @@ class FlightSessionTests(unittest.TestCase):
                                 for c in adb.shell_calls()))
             self.assertTrue(any(CONFIG_FLIGHT in c and "rm -f" in c
                                 for c in adb.shell_calls()))
+
+    def test_started_at_tracks_launch(self):
+        """started_at is stamped at the perfetto launch, not at click."""
+        with tempfile.TemporaryDirectory() as tmp:
+            adb = make_flight_adb()
+            adb.push_gate = threading.Event()
+            session = FlightSession(**record_kwargs(tmp, adb))
+            session.start(CONFIG, "test", 600000)
+            click_started = session.started_at
+            time.sleep(0.05)
+            adb.push_gate.set()
+            self.assertTrue(wait_for(
+                lambda: session.status == "recording"))
+            self.assertGreater(session.started_at, click_started)
+            self.assertLessEqual(session.started_at, adb.launch_time)
+            self.assertLess(adb.launch_time - session.started_at, 1)
+            ts = datetime.fromtimestamp(session.started_at)
+            self.assertTrue(session.remote_path.endswith(
+                f"adbperfetto_flight_{ts:%Y%m%d_%H%M%S}.pftrace"))
+            session.stop()
+            self.assertTrue(wait_for(lambda: session.status == "done", 10))
 
     def test_one_shot_path(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -111,8 +111,8 @@ export function createTape(container) {
                              nowS * 1.25));
   }
 
-  const FROZEN = new Set(["stopping", "pulling", "done", "ended",
-                        "failed", "abandoned"]);
+  const FROZEN = new Set(["starting", "stopping", "pulling", "done",
+                        "ended", "failed", "abandoned"]);
 
   function elapsedNow() {
     const base = spec.elapsedS || 0;
@@ -261,7 +261,8 @@ export function createTape(container) {
           ? next.disconnects[next.disconnects.length - 1][1] : 0,
       ]);
       const isArm = spec && next.status === "recording" &&
-        spec.status === "idle" && !REDUCED;
+        (spec.status === "idle" || spec.status === "starting") &&
+        !REDUCED;
       spec = next;
       if (isArm) armedAt = performance.now();
       if (key !== lastKey || true) {

@@ -115,6 +115,7 @@ class Smoke:
                         self.errors.append(f"pageerror: {e}"))
                 page.goto(BASE, wait_until="networkidle")
                 self.test_version(page)
+                self.test_mobilelog_default(page)
                 self.test_record_flow(page)
                 self.test_flight_flow(page)
                 self.test_configs(page)
@@ -141,6 +142,66 @@ class Smoke:
         wait_for(lambda: page.locator("#app-version").inner_text()
                  == f"v{version}", timeout=10, what="topbar version")
         self.check("topbar shows version", True, f"v{version}")
+
+    def test_mobilelog_default(self, page):
+        print("mobilelog row + default on")
+        self.select_kn8(page)
+        box = page.locator("#inp-mobilelog")
+        box.wait_for(timeout=10000)
+        self.check("mobilelog checkbox default on", box.is_checked())
+        label = page.locator(".btn.primary.big").inner_text()
+        self.check("start button mentions MobileLog",
+                   "MobileLog" in label, label)
+        hint = page.locator(".mobilelog-hint")
+        self.check("mobilelog hint shown",
+                   hint.count() == 1 and "MobileLog" in hint.inner_text(),
+                   hint.inner_text() if hint.count() else "missing")
+
+        box.uncheck()
+        wait_for(lambda: http("/api/prefs").get(KN8, {})
+                 .get("mobilelog") is False,
+                 timeout=10, what="mobilelog pref off")
+        self.check("mobilelog pref saved off", True)
+        wait_for(lambda: "MobileLog" not in
+                 page.locator(".btn.primary.big").inner_text(),
+                 timeout=10, what="label reverts")
+        self.check("label reverts when unchecked", True)
+
+        page.reload(wait_until="networkidle")
+        page.wait_for_timeout(600)
+        self.select_kn8(page)
+        box = page.locator("#inp-mobilelog")
+        box.wait_for(timeout=10000)
+        self.check("unchecked persists after reload",
+                   not box.is_checked())
+
+        # While the session is "starting" the elapsed clock stays 0:00.
+        page.locator(".btn.primary.big").click()
+        self.wait_status(KN8, "starting", timeout=10)
+        elapsed = page.locator("#ro-elapsed").inner_text()
+        self.check("elapsed 0:00 while starting",
+                   elapsed.strip() == "0:00", elapsed)
+        self.wait_status(KN8, "recording")
+        dev = device_state(KN8)
+        self.check("started without mobilelog",
+                   dev["session"].get("mobilelog") is None)
+
+        page.locator(".btn.primary.big").click()   # stop and save
+        self.wait_status(KN8, {"done"}, timeout=30)
+        page.locator(".btn-row .btn.quiet", has_text="录制").click()
+        page.wait_for_timeout(600)
+
+        box = page.locator("#inp-mobilelog")
+        box.check()
+        wait_for(lambda: http("/api/prefs").get(KN8, {})
+                 .get("mobilelog") is True,
+                 timeout=10, what="mobilelog pref on")
+        self.check("mobilelog restored for later tests", True)
+
+        page.locator('.rail-row[data-serial="PIXEL7DEMO"]').click()
+        page.wait_for_timeout(400)
+        self.check("no mobilelog row on non-MTK phone",
+                   page.locator("#inp-mobilelog").count() == 0)
 
     def select_kn8(self, page):
         page.locator(f'.rail-row[data-serial="{KN8}"]').click()

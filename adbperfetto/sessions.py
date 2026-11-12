@@ -542,6 +542,7 @@ class RecordSession(_Session):
                 raise SessionError(
                     "Could not write the config on the device: "
                     + (pushed.stderr or pushed.stdout).strip())
+            self.started_at = time.time()
             ts = datetime.fromtimestamp(self.started_at)
             self.remote_path = (f"{REMOTE_TRACE_DIR}/adbperfetto_"
                                 f"{ts:%Y%m%d_%H%M%S}.pftrace")
@@ -867,6 +868,7 @@ class FlightSession(_Session):
                 raise SessionError(
                     "Could not write the config on the device: "
                     + (pushed.stderr or pushed.stdout).strip())
+            self.started_at = time.time()
             ts = datetime.fromtimestamp(self.started_at)
             self.remote_path = (f"{REMOTE_TRACE_DIR}/adbperfetto_flight_"
                                 f"{ts:%Y%m%d_%H%M%S}.pftrace")

@@ -19,6 +19,7 @@ TRACE_RATE_BPS = 150_000          # remote trace growth ~150 KB/s
 LOG_RATE_KBS = 50                 # MobileLog growth ~50 KB/s
 PULL_CAP = 20 * 1024 * 1024       # max bytes written per demo pull
 ONE_SHOT_DELAY_S = 1.5
+START_DELAY_S = 2.0               # launch takes a moment -> "starting"
 
 KNOCK = b"\x0a\x3f"               # plausible perfetto-ish leading bytes
 
@@ -277,6 +278,7 @@ class DemoAdb:
             if dev.fail_next_start:
                 dev.fail_next_start = False
                 return Result(1, "", "demo: start failed")
+            time.sleep(START_DELAY_S)
             match = re.search(r"-o (\S+)", command)
             dev.record_remote = match.group(1) if match else \
                 "/data/misc/perfetto-traces/adbperfetto_demo.pftrace"
@@ -292,6 +294,7 @@ class DemoAdb:
             if dev.fail_next_start:
                 dev.fail_next_start = False
                 return Result(1, "", "demo: start failed")
+            time.sleep(START_DELAY_S)
             match = re.search(r"-o (\S+)", command)
             dev.flight_base = (match.group(1) if match else
                                "/data/misc/perfetto-traces/flight.pftrace")
