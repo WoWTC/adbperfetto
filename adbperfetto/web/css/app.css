@@ -94,6 +94,14 @@ button:disabled { opacity: 0.45; cursor: default; }
   color: var(--recorder);
   font-size: 16px;
   font-weight: 600;
+  align-self: baseline;
+}
+
+.brand-version {
+  align-self: baseline;
+  font-size: 12px;
+  color: var(--dim);
+  margin-left: -4px;
 }
 
 .view-tabs { display: flex; gap: 2px; }

@@ -594,6 +594,10 @@ function applyAsDefault() {
 // ------------------------------------------------------------------ header
 
 function renderHeaderInfo() {
+  const ver = app.state && app.state.version;
+  const vnode = $("#app-version");
+  vnode.textContent = ver ? `v${ver}` : "";
+  vnode.title = ver ? `adbperfetto ${ver}` : "";
   const dir = (app.state && app.state.output_dir) ||
     app.settings.output_dir || "";
   const node = $("#out-path");

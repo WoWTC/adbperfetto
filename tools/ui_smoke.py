@@ -114,6 +114,7 @@ class Smoke:
                 page.on("pageerror", lambda e:
                         self.errors.append(f"pageerror: {e}"))
                 page.goto(BASE, wait_until="networkidle")
+                self.test_version(page)
                 self.test_record_flow(page)
                 self.test_flight_flow(page)
                 self.test_configs(page)
@@ -133,6 +134,13 @@ class Smoke:
         return 0 if ok else 1
 
     # ------------------------------------------------------------ tests
+
+    def test_version(self, page):
+        print("version")
+        version = http("/api/ping")["version"]
+        wait_for(lambda: page.locator("#app-version").inner_text()
+                 == f"v{version}", timeout=10, what="topbar version")
+        self.check("topbar shows version", True, f"v{version}")
 
     def select_kn8(self, page):
         page.locator(f'.rail-row[data-serial="{KN8}"]').click()

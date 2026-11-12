@@ -55,7 +55,7 @@ class ServerTests(unittest.TestCase):
 
     def test_state_shape_and_device(self):
         payload = self.client.get("/api/state").json()
-        self.assertEqual(payload["version"], "2.0.0")
+        self.assertEqual(payload["version"], "2.0.1")
         self.assertTrue(payload["adb_ok"])
         self.assertEqual(payload["devices"][0]["serial"], SERIAL)
         self.assertEqual(payload["devices"][0]["info"]["model"],
