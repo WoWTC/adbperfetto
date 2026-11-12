@@ -18,8 +18,9 @@ function highlightLine(line) {
     comment = line.slice(commentIndex);
   }
   let html = escapeHtml(code).replace(
-    /("[^"\n]*"|\b\d+\b|\b(?:true|false)\b|\b[A-Z][A-Z_0-9]+\b)/g,
-    '<span class="tok-val">$1</span>');
+    /("[^"\n]*")|(\b\d+\b|\b(?:true|false)\b|\b[A-Z][A-Z_0-9]+\b)/g,
+    (_m, s, v) => s ? `<span class="tok-str">${s}</span>`
+                    : `<span class="tok-val">${v}</span>`);
   html = html.replace(
     /(^|\s)([a-z_][a-zA-Z0-9_]*)(\s*:|\s*\{)/g,
     '$1<span class="tok-name">$2</span>$3');

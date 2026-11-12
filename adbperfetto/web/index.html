@@ -22,33 +22,40 @@
 </head>
 <body>
 <header id="topbar">
-  <div class="brand">adbperfetto</div>
-  <span id="app-version" class="brand-version"></span>
-  <nav class="view-tabs">
+  <div class="brand-cluster">
+    <span id="conn-dot" class="conn-dot" aria-hidden="true"></span>
+    <span class="brand">adbperfetto</span>
+    <span id="app-version" class="brand-version"></span>
+  </div>
+
+  <nav class="view-tabs" aria-label="Workspace">
     <button class="topbar-btn active" data-view="capture"
             data-i18n="tab.capture">Capture</button>
     <button class="topbar-btn" data-view="configs"
             data-i18n="tab.configs">Configs</button>
   </nav>
+
   <div class="spacer"></div>
+
   <div class="outdir">
-    <span id="out-path-label" class="field-label"></span>
+    <span id="out-path-label" class="outdir-label"></span>
     <span id="out-path" class="outdir-path"></span>
-    <button id="btn-open-dir" class="btn quiet small"
+    <button id="btn-open-dir" class="capsule-btn"
             data-i18n="topbar.open">Open</button>
-    <button id="btn-change-dir" class="btn quiet small"
+    <button id="btn-change-dir" class="capsule-btn"
             data-i18n="topbar.change">Change</button>
   </div>
-  <button id="btn-theme" class="topbar-btn icon-btn"
-          aria-label="Theme"></button>
-  <div class="lang-toggle" role="group" aria-label="Language">
-    <button id="lang-zh" class="lang-btn active">中</button>
-    <span class="lang-sep" aria-hidden="true">|</span>
-    <button id="lang-en" class="lang-btn">EN</button>
+
+  <div class="topbar-tools">
+    <button id="btn-theme" class="topbar-icon-btn"
+            aria-label="Theme"></button>
+    <div class="lang-toggle" role="group" aria-label="Language">
+      <button id="lang-zh" class="lang-btn active">中</button>
+      <button id="lang-en" class="lang-btn">EN</button>
+    </div>
+    <button id="btn-quit" class="btn quiet small quit-btn"
+            data-i18n="topbar.quit">Quit</button>
   </div>
-  <span id="conn-dot" class="conn-dot" aria-hidden="true"></span>
-  <button id="btn-quit" class="btn quiet small"
-          data-i18n="topbar.quit">Quit</button>
 </header>
 
 <main>
@@ -62,28 +69,49 @@
   <section id="view-configs" class="view">
     <div id="configs-wrap" class="configs-wrap">
       <aside class="preset-col">
-        <div class="preset-head" data-i18n="tab.configs">Configs</div>
+        <div class="preset-head" data-i18n="cfg.library">Presets</div>
         <div id="preset-list" class="preset-list"></div>
-        <button id="btn-import" class="btn quiet small preset-import"
-                data-i18n="cfg.import">Import file</button>
-        <input type="file" id="import-file" class="hidden"
-               accept=".pbtx,.conf,.txt,.cfg">
+        <div class="preset-foot">
+          <button id="btn-import" class="btn quiet small preset-import"
+                  data-i18n="cfg.import">Import file</button>
+          <input type="file" id="import-file" class="hidden"
+                 accept=".pbtx,.conf,.txt,.cfg">
+        </div>
       </aside>
-      <div class="editor-col">
+
+      <div class="config-workbench">
         <div class="editor-toolbar">
-          <input type="text" id="cfg-name" aria-label="Preset name">
-          <span id="edited-mark" class="edited-mark hidden"></span>
+          <div class="cfg-name-wrap">
+            <input type="text" id="cfg-name" aria-label="Preset name">
+            <span id="edited-mark" class="edited-mark hidden"></span>
+          </div>
           <div id="status-pills" class="status-pills"></div>
           <div class="spacer"></div>
-          <button id="btn-apply-default" class="btn quiet small"
-                  data-i18n="btn.applyDefault">Use in Capture</button>
+          <div class="pane-switch" role="group" aria-label="Pane view">
+            <button class="pane-btn active" data-pane="split"
+                    data-i18n="cfg.paneSplit">Split</button>
+            <button class="pane-btn" data-pane="builder"
+                    data-i18n="cfg.paneBuilder">Builder</button>
+            <button class="pane-btn" data-pane="code"
+                    data-i18n="cfg.paneCode">PBTX</button>
+          </div>
           <button id="btn-save-preset" class="btn quiet small"
                   data-i18n="cfg.saveAs">Save as preset</button>
+          <button id="btn-apply-default" class="btn primary small"
+                  data-i18n="btn.applyDefault">Use in Capture</button>
         </div>
         <div id="parse-note" class="parse-note hidden"></div>
-        <div id="pbtx-editor" class="editor-host"></div>
+        <div id="workbench-body" class="workbench-body" data-pane="split">
+          <div id="builder" class="builder-col"></div>
+          <div class="editor-col">
+            <div class="code-subhead">
+              <span class="code-subhead-title">Perfetto PBTX</span>
+              <span class="code-subhead-shortcut">Ctrl + S</span>
+            </div>
+            <div id="pbtx-editor" class="editor-host"></div>
+          </div>
+        </div>
       </div>
-      <div id="builder" class="builder-col"></div>
     </div>
   </section>
 </main>

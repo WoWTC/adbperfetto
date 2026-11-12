@@ -1,4 +1,4 @@
-// capture.js: device rail + capture panel (record / flight).
+// capture.js: device channel rail + bench capture workspace.
 
 import { api } from "./api.js";
 import { t } from "./i18n.js";
@@ -19,15 +19,21 @@ function button(className, text, onClick) {
   return b;
 }
 
+function triggerButton(className, glyphClass, text, onClick) {
+  const b = el("button", className);
+  if (glyphClass) b.appendChild(el("span", "trigger-glyph " + glyphClass));
+  b.appendChild(el("span", null, text));
+  if (onClick) b.addEventListener("click", onClick);
+  return b;
+}
+
 function headline(s) {
   switch (s.status) {
     case "starting": return t("status.starting");
     case "recording":
       if (s.stop_requested) return t("btn.stopRequested");
-      if (!s.connected) return t("state.disconnected");
       if (s.snapshot_busy) return t("btn.savingSnapshot");
-      return s.mode === "flight" ? t("status.flight")
-                                 : t("status.recording");
+      return "";
     case "stopping": return t("status.stopping");
     case "pulling":
       return s.ended_by_duration ? t("msg.limit")
@@ -36,7 +42,7 @@ function headline(s) {
   }
 }
 
-function deviceStatus(dev) {
+function deviceStatus(dev, orphanHidden) {
   const s = dev.session;
   if (s && ACTIVE.has(s.status)) {
     const key = s.status === "recording"
@@ -51,8 +57,12 @@ function deviceStatus(dev) {
     return {
       key: s.status === "done" ? "status.done"
         : s.status === "failed" ? "status.failed" : "status.ended",
-      cls: "rule", active: false,
+      cls: s.status === "failed" ? "amber" : "rule",
+      active: false,
     };
+  }
+  if (dev.orphan && !(orphanHidden && orphanHidden.has(dev.serial))) {
+    return { key: "status.recording", cls: "amber" };
   }
   if (dev.state === "unauthorized") {
     return { key: "state.unauthorized", cls: "amber" };
@@ -72,13 +82,11 @@ function elapsedS(session) {
   return Math.max(0, end - session.started_at);
 }
 
-// MobileLog defaults to on; unchecking persists false per device.
 function wantMobilelog(dev, prefs) {
   if (!dev.info || !dev.info.has_mobilelog) return false;
   return prefs.mobilelog === undefined ? true : !!prefs.mobilelog;
 }
 
-// Mirrors outputs.safe_filename on the backend.
 function safeFilename(value) {
   return String(value || "")
     .replace(/[^A-Za-z0-9._-]+/g, "_")
@@ -86,21 +94,26 @@ function safeFilename(value) {
 }
 
 function emptyGuide(state) {
+  const stage = el("div", "empty-stage");
   const wrap = el("div", "empty");
-  wrap.appendChild(el("div", "empty-title", t("empty.title")));
+  const head = el("div", "empty-head");
+  head.appendChild(el("div", "empty-title", t("empty.title")));
+  const waiting = el("div", "empty-waiting");
+  waiting.append(el("span", "pulse-dot"),
+                 el("span", null, t("guide.waiting")));
+  head.appendChild(waiting);
+  wrap.appendChild(head);
+
   const steps = el("ol", "empty-steps");
   [t("guide.step1"), t("guide.step2"), t("guide.step3")]
     .forEach((text, i) => {
       const li = el("li");
-      li.append(el("span", "step-num", `${i + 1}.`),
+      li.append(el("span", "step-num", String(i + 1)),
                 el("span", null, text));
       steps.appendChild(li);
     });
   wrap.appendChild(steps);
-  const waiting = el("div", "empty-waiting");
-  waiting.append(el("span", "pulse-dot"),
-                 el("span", null, t("guide.waiting")));
-  wrap.appendChild(waiting);
+
   if (state && state.adb_ok === false) {
     const block = el("div", "block failed-block adb-error");
     block.appendChild(el("div", "block-title", t("adb.error.title")));
@@ -110,13 +123,11 @@ function emptyGuide(state) {
     block.appendChild(el("div", "hint dim", t("adb.error.fix")));
     wrap.appendChild(block);
   }
-  return wrap;
+  stage.appendChild(wrap);
+  return stage;
 }
 
 export function createCapture(deps) {
-  // deps: {rail, main, getPrefs(serial), setPrefs(serial, patch),
-  //        getDraft(), openConfigs(presetId), showModal(opts),
-  //        showConfirm(title,msg,label,fn), toast(msg), onSelect(serial)}
   const ui = {
     railSig: "",
     panelSig: "",
@@ -157,18 +168,23 @@ export function createCapture(deps) {
 
   function renderRail() {
     deps.rail.textContent = "";
+    const head = el("div", "rail-header");
+    head.append(el("span", "rail-title", t("rail.phones")),
+                el("span", "rail-count", String(ui.state.devices.length)));
+    deps.rail.appendChild(head);
+
     if (!ui.state.devices.length) {
       deps.rail.appendChild(el("div", "rail-empty", t("rail.empty")));
       return;
     }
     for (const dev of sortDevices(ui.state.devices)) {
-      const status = deviceStatus(dev);
+      const status = deviceStatus(dev, ui.orphanHidden);
       const row = el("button", "rail-row");
       row.dataset.serial = dev.serial;
       if (ui.selected && dev.serial === ui.selected.serial) {
         row.classList.add("selected");
       }
-      row.appendChild(el("span", "rail-bar " + status.cls));
+      row.appendChild(el("span", "rail-led " + status.cls));
       const body = el("span", "rail-body");
       body.appendChild(el("span", "rail-model",
                           (dev.info && dev.info.model) || dev.serial));
@@ -232,6 +248,8 @@ export function createCapture(deps) {
       dev.serial, dev.state,
       dev.info ? dev.info.model : "",
       s.status, s.mode, s.connected,
+      s.stop_requested ? 1 : 0,
+      s.snapshot_busy ? 1 : 0,
       (s.snapshots || []).length,
       (s.checklist || []).length,
       (s.disconnects || []).length,
@@ -244,9 +262,10 @@ export function createCapture(deps) {
     ]);
   }
 
-  function presetOptions(serial, presetId, draft) {
+  function presetOptions(serial, presetId, draft, disabled) {
     const sel = document.createElement("select");
     sel.id = "cfg-preset";
+    sel.disabled = !!disabled;
     const builtin = document.createElement("optgroup");
     builtin.label = t("cfg.builtin");
     const mine = document.createElement("optgroup");
@@ -314,9 +333,16 @@ export function createCapture(deps) {
       ui.refs.memory.textContent =
         size ? t("flight.memory", { size }) : "";
     }
+    if (ui.refs["ro-idle-buf"]) {
+      ui.refs["ro-idle-buf"].textContent = size || "—";
+    }
     if (ui.refs.duration && durationMs && !prefs.durationSet) {
-      ui.refs.duration.value =
-        String(Math.max(1, Math.round(durationMs / 60000)));
+      const mins = Math.max(1, Math.round(durationMs / 60000));
+      ui.refs.duration.value = String(mins);
+      if (ui.refs["ro-target"] && !prefs.noLimit &&
+          (prefs.mode || "record") === "record") {
+        ui.refs["ro-target"].textContent = fmtTime(mins * 60);
+      }
     }
   }
 
@@ -360,22 +386,194 @@ export function createCapture(deps) {
 
   function deviceHeader(dev) {
     const head = el("div", "dev-head");
-    head.appendChild(el("h1", "dev-name",
-                        (dev.info && dev.info.model) || dev.serial));
-    head.appendChild(metaRow(dev));
+    const main = el("div", "dev-head-main");
+    const titleGroup = el("div", "dev-title-group");
+    titleGroup.appendChild(el("h1", "dev-name",
+                              (dev.info && dev.info.model) || dev.serial));
+    const st = deviceStatus(dev, ui.orphanHidden);
+    titleGroup.appendChild(el("span", "dev-badge " + st.cls, t(st.key)));
+    main.append(titleGroup, metaRow(dev));
+    head.appendChild(main);
+
     if (dev.state === "unauthorized") {
       head.appendChild(el("div", "hint amber", t("hint.unauthorized")));
     } else if (dev.state === "offline") {
       head.appendChild(el("div", "hint amber", t("hint.offline")));
     } else if (dev.state === "disconnected" &&
                !(dev.session && ACTIVE.has(dev.session.status))) {
-      head.appendChild(el("div", "hint amber",
-                           t("hint.disconnected")));
+      head.appendChild(el("div", "hint amber", t("hint.disconnected")));
     }
     if (dev.wifi) {
       head.appendChild(el("div", "hint amber", t("hint.wifi")));
     }
     return head;
+  }
+
+  function transportDeck(dev, prefs) {
+    const s = dev.session;
+    const orphanShown = dev.orphan && !s &&
+      !ui.orphanHidden.has(dev.serial);
+    const deck = el("div", "transport-deck");
+    const top = el("div", "transport-top");
+    const left = el("div", "transport-left");
+
+    if (!s) {
+      if (!orphanShown) {
+        const mode = prefs.mode || "record";
+        const label = mode === "record"
+          ? (wantMobilelog(dev, prefs) ? t("btn.startRecordMl")
+                                       : t("btn.startRecord"))
+          : t("btn.startFlight");
+        const btn = triggerButton("btn primary big", "rec", label,
+                                  () => startSession(dev, prefs, mode));
+        if (dev.state !== "device") btn.disabled = true;
+        left.appendChild(btn);
+      } else {
+        const row = el("div", "btn-row");
+        row.append(
+          triggerButton("btn primary big", "stop", t("btn.stopSave"),
+            async () => {
+              try {
+                await api.adopt(dev.serial);
+                await api.stop(dev.serial, false);
+                deps.toast(t("toast.stopped"));
+              } catch (e) { deps.toast(e.message); }
+            }),
+          button("btn quiet", t("btn.leaveRunning"), () => {
+            ui.orphanHidden.add(dev.serial);
+            ui.panelSig = "";
+          }));
+        left.appendChild(row);
+        left.appendChild(el("div", "hint amber", t("orphan.text")));
+      }
+    } else if (s.status === "starting") {
+      const b = triggerButton("btn primary big", "rec", t("btn.starting"));
+      b.disabled = true;
+      left.appendChild(b);
+    } else if (s.status === "recording") {
+      if (s.mode === "record") {
+        const b = triggerButton(
+          "btn primary big", "stop",
+          s.stop_requested ? t("btn.stopRequested") : t("btn.stopSave"),
+          () => stopSession(dev));
+        if (s.stop_requested) b.disabled = true;
+        left.appendChild(b);
+      } else {
+        const row = el("div", "btn-row");
+        const snap = triggerButton(
+          "btn primary big", "snap",
+          s.snapshot_busy ? t("btn.savingSnapshot") : t("btn.saveSnapshot"),
+          () => takeSnapshot(dev));
+        snap.id = "btn-snapshot";
+        if (s.snapshot_busy) snap.disabled = true;
+        const stop = button("btn quiet", t("btn.stop"),
+                            () => stopFlightModal(dev));
+        row.append(snap, el("span", "key-hint", "S"), stop);
+        left.appendChild(row);
+      }
+    } else if (s.status === "stopping") {
+      const b = triggerButton("btn primary big", "stop", t("btn.stopping"));
+      b.disabled = true;
+      left.appendChild(b);
+    } else if (s.status === "pulling") {
+      const b = triggerButton("btn primary big", "stop", t("btn.pulling"));
+      b.disabled = true;
+      left.appendChild(b);
+    } else {
+      // Terminal state: primary CTA lives on the result card right below;
+      // show calm status pill here so there are never two primary buttons.
+      const st = deviceStatus(dev);
+      const line = el("div", "btn-row");
+      line.appendChild(el("span", "dev-badge " + st.cls, t(st.key)));
+      if (s.preset_name) {
+        line.appendChild(el("span", "field-meta", s.preset_name));
+      }
+      left.appendChild(line);
+    }
+
+    const notes = el("div", "transport-notes");
+    const msg = el("div", "message");
+    msg.id = "sess-msg";
+    msg.setAttribute("aria-live", "polite");
+    const detail = el("div", "message-detail");
+    detail.id = "sess-detail";
+    notes.append(msg, detail);
+
+    if (s && s.status === "recording") {
+      if (s.mode === "record" && !s.stop_requested && s.connected) {
+        notes.appendChild(el("div", "hint dim", t("hint.unplug")));
+      }
+      if (s.mode === "flight" && s.one_shot &&
+          (s.snapshots || []).length === 0) {
+        notes.appendChild(el("div", "hint amber", t("flight.oneShot")));
+      }
+      if (s.mobilelog && s.mobilelog.paused) {
+        notes.appendChild(el("div", "hint dim",
+                             t("ml.paused", { names: s.mobilelog.paused })));
+      }
+    }
+    left.appendChild(notes);
+
+    const ro = readouts(dev, prefs);
+    top.append(left, ro);
+    deck.appendChild(top);
+
+    ui.tapeHost = el("div", "tape-host");
+    deck.appendChild(ui.tapeHost);
+    return deck;
+  }
+
+  function readouts(dev, prefs) {
+    const s = dev.session;
+    const row = el("div", "readouts");
+
+    if (!s) {
+      const mode = prefs.mode || "record";
+      const targetStr = mode === "record"
+        ? (prefs.noLimit ? t("time.unlimited")
+                         : fmtTime((prefs.durationMin || 30) * 60))
+        : `${prefs.lifetimeH || ui.flightLifetimeH || 24} ${t("flight.hours")}`;
+      const st = deviceStatus(dev, ui.orphanHidden);
+      const idleDefs = [
+        ["elapsed", t("readout.elapsed"), "0:00", "readout-value standby", true],
+        ["target", mode === "record" ? t("readout.target") : t("flight.lifetime"),
+         targetStr, "readout-value"],
+        ["idle-buf", t("readout.buffer"), "—", "readout-value"],
+        ["phone", t("readout.phone"), t(st.key),
+         "readout-value " + (st.cls === "idle" ? "live" : "amber")],
+      ];
+      for (const [id, label, initText, valCls, big] of idleDefs) {
+        const item = el("div", "readout" + (big ? " big" : ""));
+        const value = el("div", valCls, initText);
+        value.id = "ro-" + id;
+        item.append(value, el("div", "readout-label", label));
+        row.appendChild(item);
+      }
+      return row;
+    }
+
+    const mode = s.mode || "record";
+    const defs = mode === "record"
+      ? [["elapsed", t("readout.elapsed"), true],
+         ["size", t("readout.size")]]
+      : [["elapsed", t("readout.elapsed"), true],
+         ["snaps", t("readout.snapshots")]];
+    if (ACTIVE.has(s.status)) {
+      if (mode === "record") {
+        if (s.mobilelog) defs.push(["mlog", t("readout.mobilelog")]);
+      } else {
+        defs.push(["memory", t("readout.memory")]);
+      }
+      defs.push(["phone", t("readout.phone")]);
+    }
+    for (const [id, label, big] of defs) {
+      const item = el("div", "readout" + (big ? " big" : ""));
+      const value = el("div", "readout-value");
+      value.id = "ro-" + id;
+      item.append(value, el("div", "readout-label", label));
+      row.appendChild(item);
+    }
+    return row;
   }
 
   function segmented(dev, prefs) {
@@ -397,11 +595,11 @@ export function createCapture(deps) {
     return seg;
   }
 
-  function configRow(dev, prefs) {
+  function configRow(dev, prefs, running) {
     const row = el("div", "config-row");
     row.appendChild(el("span", "field-label", t("config.label")));
     const sel = presetOptions(dev.serial, prefs.presetId,
-                              deps.getDraft());
+                              deps.getDraft(), running);
     row.appendChild(sel);
     row.appendChild(button("btn quiet small", t("config.edit"), () => {
       deps.openConfigs(sel.value === "__draft__" ? null : sel.value);
@@ -467,25 +665,28 @@ export function createCapture(deps) {
           durationSet: true,
         });
       });
+      const capsule = el("span", "input-capsule");
+      capsule.append(dur, el("span", "field-suffix", t("record.minutes")));
       const durLabel = el("label", "field");
-      durLabel.append(el("span", "field-label", t("record.duration")),
-                      dur,
-                      el("span", "field-suffix", t("record.minutes")));
+      durLabel.append(el("span", "field-label", t("record.duration")), capsule);
       row.appendChild(durLabel);
+
       const noLimit = document.createElement("input");
       noLimit.type = "checkbox";
+      noLimit.className = "switch";
       noLimit.checked = !!prefs.noLimit;
       noLimit.disabled = !!running;
       noLimit.addEventListener("change", () => {
         deps.setPrefs(dev.serial, { noLimit: noLimit.checked });
       });
       const nlLabel = el("label", "field check");
-      nlLabel.append(noLimit,
-                     el("span", "field-label", t("record.noLimit")));
+      nlLabel.append(noLimit, el("span", "field-label", t("record.noLimit")));
       row.appendChild(nlLabel);
-      const buffer = el("span", "field-meta");
-      ui.refs.buffer = buffer;
-      row.appendChild(buffer);
+      if (running) {
+        const buffer = el("span", "field-meta");
+        ui.refs.buffer = buffer;
+        row.appendChild(buffer);
+      }
     } else {
       const life = document.createElement("input");
       life.type = "number";
@@ -499,14 +700,12 @@ export function createCapture(deps) {
           lifetimeH: parseInt(life.value, 10) || 24,
         });
       });
+      const capsule = el("span", "input-capsule");
+      capsule.append(life, el("span", "field-suffix", t("flight.hours")));
       const lifeLabel = el("label", "field");
       lifeLabel.append(el("span", "field-label", t("flight.lifetime")),
-                       life,
-                       el("span", "field-suffix", t("flight.hours")));
+                       capsule);
       row.appendChild(lifeLabel);
-      const mem = el("span", "field-meta");
-      ui.refs.memory = mem;
-      row.appendChild(mem);
     }
     return row;
   }
@@ -517,6 +716,7 @@ export function createCapture(deps) {
     const wrap = el("div", "mobilelog-row");
     const box = document.createElement("input");
     box.type = "checkbox";
+    box.className = "switch";
     box.id = "inp-mobilelog";
     box.checked = wantMobilelog(dev, prefs);
     box.disabled = !!running;
@@ -524,41 +724,47 @@ export function createCapture(deps) {
       deps.setPrefs(dev.serial, { mobilelog: box.checked });
     });
     const mlLabel = el("label", "field check");
-    mlLabel.append(box, el("span", "field-label",
-                           t("record.mobilelog")));
+    mlLabel.append(box, el("span", "field-label", t("record.mobilelog")));
     wrap.appendChild(mlLabel);
     wrap.appendChild(el("div", "hint dim mobilelog-hint",
                         t("record.mobilelogHint")));
     return wrap;
   }
 
-  function readouts(dev, prefs) {
+  function setupModule(dev, prefs) {
     const s = dev.session;
-    if (!s) return null;
-    const mode = s.mode || "record";
-    const defs = mode === "record"
-      ? [["elapsed", t("readout.elapsed"), true],
-         ["size", t("readout.size")]]
-      : [["elapsed", t("readout.elapsed"), true],
-         ["snaps", t("readout.snapshots")]];
-    if (ACTIVE.has(s.status)) {
-      if (mode === "record") {
-        if (s.mobilelog) defs.push(["mlog", t("readout.mobilelog")]);
-      } else {
-        defs.push(["memory", t("readout.memory")]);
+    const running = s && ACTIVE.has(s.status);
+    const mode = running ? s.mode : (prefs.mode || "record");
+
+    const card = el("section", "module-card setup-card");
+    const head = el("div", "module-head");
+    head.appendChild(el("span", "module-title", t("setup.title")));
+    if (running) {
+      head.appendChild(el("span", "module-badge", t("setup.locked")));
+    }
+    card.appendChild(head);
+
+    const body = el("div", "module-body");
+    const modeGroup = el("div", "param-group");
+    const modeRow = el("div", "param-row");
+    modeRow.append(el("span", "field-label", t("setup.mode")),
+                   segmented(dev, prefs));
+    modeGroup.appendChild(modeRow);
+    if (mode === "flight" && !s) {
+      modeGroup.appendChild(el("div", "hint dim", t("flight.explainer")));
+      if (dev.info && dev.info.sdk && !dev.info.supports_clone) {
+        modeGroup.appendChild(el("div", "hint amber", t("flight.oneShot")));
       }
-      defs.push(["phone", t("readout.phone")]);
     }
-    const row = el("div", "readouts");
-    for (const [id, label, big] of defs) {
-      const item = el("div", "readout" + (big ? " big" : ""));
-      const value = el("div", "readout-value");
-      value.id = "ro-" + id;
-      const lab = el("div", "readout-label", label);
-      item.append(value, lab);
-      row.appendChild(item);
+    body.appendChild(modeGroup);
+
+    body.appendChild(configRow(dev, prefs, running));
+    body.appendChild(inputsRow(dev, prefs));
+    if (mode === "record" && dev.info && dev.info.has_mobilelog) {
+      body.appendChild(mobilelogRow(dev, prefs));
     }
-    return row;
+    card.appendChild(body);
+    return card;
   }
 
   function snapshotList(s) {
@@ -566,13 +772,12 @@ export function createCapture(deps) {
     const snaps = s.snapshots || [];
     snaps.slice().reverse().forEach((snap) => {
       const when = new Date(snap.at * 1000);
-      const hhmmss = [when.getHours(), when.getMinutes(),
-                      when.getSeconds()]
+      const hhmmss = [when.getHours(), when.getMinutes(), when.getSeconds()]
         .map((v) => String(v).padStart(2, "0")).join(":");
       const row = el("div", "snapshot-row");
       row.append(
-        el("span", "snap-name",
-           t("snapshot.row", { n: snap.index + 1 })),
+        el("span", "snap-badge", `#${snap.index + 1}`),
+        el("span", "snap-name", t("snapshot.row", { n: snap.index + 1 })),
         el("span", "snap-time", hhmmss),
         el("span", "snap-size", fmtSize(snap.size)),
         button("btn quiet small", t("btn.show"), () => {
@@ -587,21 +792,48 @@ export function createCapture(deps) {
     return list;
   }
 
-  function outputsList(dev) {
-    const wrap = el("div", "saved");
+  function artifactsModule(dev) {
+    const card = el("section", "module-card saved");
     const model = (dev.info && dev.info.model) || dev.serial;
     const prefix = safeFilename(model);
     const mine = (ui.outputs || []).filter(
       (out) => out.name && out.name.startsWith(prefix));
-    if (!mine.length) return wrap;
-    wrap.appendChild(el("div", "saved-title", t("saved.title")));
+    const snaps = (dev.session && dev.session.snapshots) || [];
+
+    const head = el("div", "module-head");
+    head.append(el("span", "module-title saved-title", t("saved.title")),
+                el("span", "module-badge", String(mine.length)));
+    card.appendChild(head);
+
+    const body = el("div", "module-body artifacts-body");
+    if (snaps.length) {
+      const snapSec = el("div", "snapshots-section");
+      snapSec.appendChild(el("div", "sub-section-head",
+                             t("snapshots.title")));
+      snapSec.appendChild(snapshotList(dev.session));
+      body.appendChild(snapSec);
+    }
+
+    if (!mine.length) {
+      const empty = el("div", "saved-empty");
+      empty.append(el("div", "saved-empty-title", t("saved.emptyTitle")),
+                   el("div", "saved-empty-hint", t("saved.emptyHint")));
+      body.appendChild(empty);
+      card.appendChild(body);
+      return card;
+    }
+
     const list = el("div", "saved-list");
     const expanded = ui.showAllSaved.has(dev.serial);
-    const shown = expanded ? mine : mine.slice(0, 8);
+    const shown = expanded ? mine : mine.slice(0, 7);
     for (const out of shown) {
       const row = el("div", "saved-row");
+      const isZip = /\.zip$/i.test(out.name);
+      const nameNode = el("span", "saved-name", out.name);
+      nameNode.title = out.name;
       row.append(
-        el("span", "saved-name", out.name),
+        el("span", "file-badge", isZip ? "ZIP" : "TRACE"),
+        nameNode,
         el("span", "saved-size", fmtSize(out.size)),
         button("btn quiet small", t("btn.show"), () => {
           api.reveal(out.path).catch((e) => deps.toast(e.message));
@@ -612,8 +844,10 @@ export function createCapture(deps) {
         }));
       list.appendChild(row);
     }
-    wrap.appendChild(list);
-    if (mine.length > 8) {
+    body.appendChild(list);
+
+    if (mine.length > 7) {
+      const foot = el("div", "saved-foot");
       const toggle = button("btn quiet small",
         expanded ? t("saved.showLess")
                  : t("saved.showAll", { n: mine.length }), () => {
@@ -622,125 +856,42 @@ export function createCapture(deps) {
         ui.panelSig = "";
       });
       toggle.id = "saved-toggle";
-      wrap.appendChild(toggle);
+      foot.appendChild(toggle);
+      body.appendChild(foot);
     }
-    return wrap;
+    card.appendChild(body);
+    return card;
   }
 
-  // ------------------------------------------------- status sections
+  // ------------------------------------------------- contextual callouts
 
-  function statusSection(dev, prefs) {
+  function statusSection(dev) {
     const s = dev.session;
     const sec = el("div", "status-area");
-    const orphanShown = dev.orphan && !s &&
-      !ui.orphanHidden.has(dev.serial);
+    if (!s) return sec;
 
-    if (orphanShown) {
-      const block = el("div", "block amber-block");
-      block.appendChild(el("div", "block-text", t("orphan.text")));
-      const row = el("div", "btn-row");
-      row.append(
-        button("btn primary", t("btn.stopSave"), async () => {
-          try {
-            await api.adopt(dev.serial);
-            await api.stop(dev.serial, false);
-            deps.toast(t("toast.stopped"));
-          } catch (e) { deps.toast(e.message); }
-        }),
-        button("btn quiet", t("btn.leaveRunning"), () => {
-          ui.orphanHidden.add(dev.serial);
-          ui.panelSig = "";
-        }));
-      block.appendChild(row);
-      sec.appendChild(block);
-    }
-
-    const msg = el("div", "message");
-    msg.id = "sess-msg";
-    msg.setAttribute("aria-live", "polite");
-    sec.appendChild(msg);
-    const detail = el("div", "message-detail");
-    detail.id = "sess-detail";
-    sec.appendChild(detail);
-
-    if (!s) {
-      if (!orphanShown) {
-        const mode = prefs.mode || "record";
-        const label = mode === "record"
-          ? (wantMobilelog(dev, prefs) ? t("btn.startRecordMl")
-                                       : t("btn.startRecord"))
-          : t("btn.startFlight");
-        sec.appendChild(button("btn primary big", label,
-                               () => startSession(dev, prefs, mode)));
-      }
-      return sec;
-    }
-
-    if (s.status === "starting") {
-      const b = button("btn primary big", t("btn.starting"));
-      b.disabled = true;
-      sec.appendChild(b);
-    } else if (s.status === "recording") {
-      if (!s.connected) {
-        sec.appendChild(el("div", "block amber-block",
-                           t("banner.disconnected")));
-      }
-      if (s.mode === "record") {
-        const b = button("btn primary big",
-                         s.stop_requested ? t("btn.stopRequested")
-                                          : t("btn.stopSave"),
-                         () => stopSession(dev));
-        if (s.stop_requested) b.disabled = true;
-        sec.appendChild(b);
-        if (!s.stop_requested && s.connected) {
-          sec.appendChild(el("div", "hint dim", t("hint.unplug")));
-        }
-      } else {
-        const row = el("div", "btn-row");
-        const snap = button(
-          "btn primary big",
-          s.snapshot_busy ? t("btn.savingSnapshot")
-                          : t("btn.saveSnapshot"),
-          () => takeSnapshot(dev));
-        snap.id = "btn-snapshot";
-        if (s.snapshot_busy) snap.disabled = true;
-        const stop = button("btn quiet", t("btn.stop"),
-                            () => stopFlightModal(dev));
-        row.append(snap, el("span", "key-hint", "S"), stop);
-        sec.appendChild(row);
-        if (s.one_shot && (s.snapshots || []).length === 0) {
-          sec.appendChild(el("div", "hint amber",
-                             t("flight.oneShot")));
-        }
-      }
-      if (s.mobilelog && s.mobilelog.paused) {
-        sec.appendChild(el("div", "hint dim",
-                           t("ml.paused",
-                             { names: s.mobilelog.paused })));
-      }
-    } else if (s.status === "stopping") {
-      const b = button("btn primary big", t("btn.stopping"));
-      b.disabled = true;
-      sec.appendChild(b);
+    if (s.status === "recording" && !s.connected) {
+      sec.appendChild(el("div", "block amber-block",
+                         t("banner.disconnected")));
     } else if (s.status === "pulling") {
+      const card = el("div", "pull-card");
       const wrap = el("div", "pullbar");
       const fill = el("div", "pullbar-fill");
       fill.id = "pullbar-fill";
       wrap.appendChild(fill);
-      sec.appendChild(wrap);
-      sec.appendChild(el("div", "hint dim", t("pull.note")));
+      card.append(wrap, el("div", "hint dim", t("pull.note")));
+      sec.appendChild(card);
     } else if (s.status === "done") {
       sec.appendChild(doneBlock(dev, s));
     } else if (s.status === "failed") {
       sec.appendChild(failedBlock(dev, s));
     } else if (s.status === "ended" || s.status === "abandoned") {
-      sec.appendChild(el("div", "block amber-block",
-                         s.mode === "flight" ? t("flight.ended")
-                                             : (s.message || "")));
-      sec.appendChild(dismissRow(dev));
-    }
-    if ((s.snapshots || []).length) {
-      sec.appendChild(snapshotList(s));
+      const block = el("div", "block amber-block");
+      block.appendChild(el("div", "block-text",
+                           s.mode === "flight" ? t("flight.ended")
+                                               : (s.message || t("status.ended"))));
+      block.appendChild(dismissRow(dev));
+      sec.appendChild(block);
     }
     return sec;
   }
@@ -765,17 +916,22 @@ export function createCapture(deps) {
                              : t("done.title")));
     head.appendChild(info);
     block.appendChild(head);
-    for (const item of s.checklist || []) {
-      const row = el("div",
-                     "check-row " + (item.ok ? "ok" : "bad"));
-      row.append(el("span", "check-mark", item.ok ? "✓" : "✕"),
-                 el("span", "check-label", item.label),
-                 el("span", "check-size", fmtSize(item.size)));
-      block.appendChild(row);
+
+    if ((s.checklist || []).length) {
+      const clist = el("div", "check-list");
+      for (const item of s.checklist) {
+        const row = el("div", "check-row " + (item.ok ? "ok" : "bad"));
+        row.append(el("span", "check-mark", item.ok ? "✓" : "✕"),
+                   el("span", "check-label", item.label),
+                   el("span", "check-size", fmtSize(item.size)));
+        clist.appendChild(row);
+      }
+      block.appendChild(clist);
     }
     if ((s.checklist || []).some((c) => !c.ok)) {
       block.appendChild(el("div", "hint alert", t("check.missing")));
     }
+
     const row = el("div", "btn-row");
     row.append(
       button("btn primary", t("btn.showInFolder"), () => {
@@ -805,8 +961,7 @@ export function createCapture(deps) {
     }
     if (s.remote_path) {
       block.appendChild(el("div", "hint dim",
-                           t("failed.onDevice",
-                             { path: s.remote_path })));
+                           t("failed.onDevice", { path: s.remote_path })));
     }
     block.appendChild(dismissRow(dev));
     return block;
@@ -853,7 +1008,7 @@ export function createCapture(deps) {
     const modal = deps.showModal({
       title: t("modal.stopFlight.title"),
       bodyHtml: '<label class="field check modal-check">' +
-        '<input type="checkbox" id="stop-save-snap" checked>' +
+        '<input type="checkbox" class="switch" id="stop-save-snap" checked>' +
         '<span class="field-label"></span></label>',
       buttons: [
         [t("btn.cancel"), (close) => close()],
@@ -894,6 +1049,9 @@ export function createCapture(deps) {
         ? (s.message || "") : "";
     }
     if (!s) {
+      if (ui.tape) {
+        ui.tape.update(tapeSpec(dev, getPrefs(dev.serial)));
+      }
       return;
     }
     set("ro-elapsed", fmtTime(elapsedS(s)));
@@ -906,7 +1064,7 @@ export function createCapture(deps) {
         "readout-value " + (s.connected ? "live" : "amber"));
     set("ro-mlog",
         s.mobilelog && s.mobilelog.running
-          ? fmtSize(s.mobilelog.log_bytes) : "");
+          ? fmtSize(s.mobilelog.log_bytes) : "—");
     const fill = document.getElementById("pullbar-fill");
     if (fill) {
       fill.style.width = `${Math.round((s.pull_progress || 0) * 100)}%`;
@@ -930,37 +1088,22 @@ export function createCapture(deps) {
     const prefs = getPrefs(dev.serial);
     const inner = el("div", "panel-inner");
     host.appendChild(inner);
+
     inner.appendChild(deviceHeader(dev));
-    inner.appendChild(segmented(dev, prefs));
-    inner.appendChild(configRow(dev, prefs));
-    const s = dev.session;
-    const running = s && ACTIVE.has(s.status);
-    const mode = running ? s.mode : (prefs.mode || "record");
-    if (mode === "flight" && !s) {
-      inner.appendChild(el("div", "hint dim", t("flight.explainer")));
-    }
-    inner.appendChild(inputsRow(dev, prefs));
-    if (mode === "record" && dev.info && dev.info.has_mobilelog) {
-      inner.appendChild(mobilelogRow(dev, prefs));
-    }
-    if (mode === "flight" && !s && dev.info && dev.info.sdk &&
-        !dev.info.supports_clone) {
-      inner.appendChild(el("div", "hint amber", t("flight.oneShot")));
-    }
+    inner.appendChild(transportDeck(dev, prefs));
+    inner.appendChild(statusSection(dev));
+
+    const grid = el("div", "bench-grid");
+    grid.append(setupModule(dev, prefs), artifactsModule(dev));
+    inner.appendChild(grid);
+
     ui.refs.duration = host.querySelector("#inp-duration");
     ui.refs.lifetime = host.querySelector("#inp-lifetime");
-    ui.tapeHost = el("div", "tape-host");
-    inner.appendChild(ui.tapeHost);
-    const ro = readouts(dev, prefs);
-    if (ro) {
-      inner.appendChild(ro);
-      for (const id of ["elapsed", "size", "snaps", "memory", "phone",
-                        "mlog"]) {
-        ui.refs["ro-" + id] = host.querySelector("#ro-" + id);
-      }
+    for (const id of ["elapsed", "size", "snaps", "memory", "phone",
+                      "mlog", "target", "idle-buf"]) {
+      ui.refs["ro-" + id] = host.querySelector("#ro-" + id);
     }
-    inner.appendChild(statusSection(dev, prefs));
-    inner.appendChild(outputsList(dev));
+
     if (ui.tape) ui.tape.destroy();
     ui.tape = createTape(ui.tapeHost);
     ui.tape.update(tapeSpec(dev, prefs));

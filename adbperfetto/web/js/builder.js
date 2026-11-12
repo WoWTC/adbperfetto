@@ -69,8 +69,10 @@ export function createBuilder(container, { onChange, getLists } = {}) {
     const model = ui.model;
     const wrap = el("div", "builder-pane");
 
+    const durSec = el("div", "builder-section");
     const noLimit = document.createElement("input");
     noLimit.type = "checkbox";
+    noLimit.className = "switch";
     noLimit.checked = model.duration_ms == null;
     const dur = document.createElement("input");
     dur.type = "number";
@@ -89,12 +91,16 @@ export function createBuilder(container, { onChange, getLists } = {}) {
       model.duration_ms = (parseInt(dur.value, 10) || 30) * 60000;
       emit();
     });
-    wrap.appendChild(field(t("basics.duration") + " (" +
-                           t("record.minutes") + ")", dur));
-    const noLimitLabel = field(t("basics.noLimit"), noLimit);
-    wrap.appendChild(noLimitLabel);
+    const durRow = el("div", "apps-row");
+    const capsule = el("span", "input-capsule");
+    capsule.append(dur, el("span", "field-suffix", t("record.minutes")));
+    durRow.append(field(t("basics.duration"), capsule),
+                  field(t("basics.noLimit"), noLimit));
+    durSec.appendChild(durRow);
+    wrap.appendChild(durSec);
 
-    wrap.appendChild(el("div", "builder-sub", t("basics.buffers")));
+    const bufSec = el("div", "builder-section");
+    bufSec.appendChild(el("div", "module-title", t("basics.buffers")));
     const table = el("div", "buffer-table");
     model.buffers.forEach((buf, i) => {
       const row = el("div", "buffer-row");
@@ -128,29 +134,32 @@ export function createBuilder(container, { onChange, getLists } = {}) {
                  field(t("basics.fillPolicy"), policy), remove);
       table.appendChild(row);
     });
-    wrap.appendChild(table);
+    bufSec.appendChild(table);
+    const addRow = el("div", "btn-row");
     const addBuf = el("button", "btn quiet small", t("basics.addBuffer"));
     addBuf.addEventListener("click", () => {
       model.buffers.push({ size_kb: 32768, fill_policy: "RING_BUFFER" });
       emit();
       render();
     });
-    wrap.appendChild(addBuf);
+    addRow.appendChild(addBuf);
+    bufSec.appendChild(addRow);
+    wrap.appendChild(bufSec);
 
+    const ftSec = el("div", "builder-section");
     const ft = model.ftrace || (model.ftrace = {
       enabled: false, events: [], atrace_categories: [],
       atrace_apps: [], buffer_size_kb: null,
     });
     const ftToggle = document.createElement("input");
     ftToggle.type = "checkbox";
+    ftToggle.className = "switch";
     ftToggle.checked = !!ft.enabled;
     ftToggle.addEventListener("change", () => {
       ft.enabled = ftToggle.checked;
       emit();
       render();
     });
-    wrap.appendChild(el("div", "builder-sub"));
-    wrap.appendChild(field(t("basics.ftrace"), ftToggle));
     const ftSize = document.createElement("input");
     ftSize.type = "number";
     ftSize.min = "0";
@@ -162,7 +171,11 @@ export function createBuilder(container, { onChange, getLists } = {}) {
         ? parseInt(ftSize.value, 10) : null;
       emit();
     });
-    wrap.appendChild(field(t("basics.ftraceBuffer"), ftSize));
+    const ftRow = el("div", "apps-row");
+    ftRow.append(field(t("basics.ftrace"), ftToggle),
+                 field(t("basics.ftraceBuffer"), ftSize));
+    ftSec.appendChild(ftRow);
+    wrap.appendChild(ftSec);
     return wrap;
   }
 
@@ -240,6 +253,7 @@ export function createBuilder(container, { onChange, getLists } = {}) {
     const allApps = apps.includes("*");
     const allBox = document.createElement("input");
     allBox.type = "checkbox";
+    allBox.className = "switch";
     allBox.checked = allApps;
     allBox.addEventListener("change", () => {
       ft.atrace_apps = allBox.checked ? ["*"] : [];
@@ -329,7 +343,10 @@ export function createBuilder(container, { onChange, getLists } = {}) {
       const label = group === OTHER ? t("ftrace.other") : group;
       const expanded = ui.expanded.has(group) ||
         (checked > 0 && !ui.collapsed.has(group));
-      const header = el("button", "builder-group");
+      const header = el("button",
+                        "builder-group" +
+                        (checked > 0 ? " has-checked" : "") +
+                        (expanded ? " expanded" : ""));
       header.append(
         el("span", null, `${expanded ? "▾" : "▸"} ${label}`),
         el("span", "group-count", `${checked}/${names.length}`));
@@ -345,7 +362,7 @@ export function createBuilder(container, { onChange, getLists } = {}) {
       });
       wrap.appendChild(header);
       if (expanded) {
-        wrap.appendChild(checklist(shown, selected,
+        const list = checklist(shown, selected,
           (name, checked) => {
             ft.events = ft.events || [];
             if (checked && !ft.events.includes(name)) {
@@ -354,7 +371,9 @@ export function createBuilder(container, { onChange, getLists } = {}) {
               ft.events = ft.events.filter((x) => x !== name);
             }
             emit();
-          }));
+          });
+        list.classList.add("group-checklist");
+        wrap.appendChild(list);
       }
     }
 

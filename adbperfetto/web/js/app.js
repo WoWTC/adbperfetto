@@ -276,8 +276,28 @@ function setConn(ok) {
   $("#conn-dot").classList.toggle("dead", !ok);
 }
 
+function compactPath(dir) {
+  if (!dir || dir.length <= 36) return dir || "";
+  const sep = dir.includes("\\") ? "\\" : "/";
+  const parts = dir.split(/[\\/]+/).filter(Boolean);
+  if (parts.length <= 3) return dir;
+  return `${parts[0]}${sep}…${sep}${parts.slice(-2).join(sep)}`;
+}
+
 function onState(state) {
   app.state = state;
+  const anyActive = state.devices.some(
+    (d) => d.session && ["starting", "recording"].includes(d.session.status));
+  $("#conn-dot").classList.toggle("recording", anyActive);
+  const outSig = JSON.stringify(state.devices.map((d) => [
+    d.serial,
+    d.session ? d.session.status : null,
+    d.session && d.session.snapshots ? d.session.snapshots.length : 0,
+  ]));
+  if (outSig !== app.lastOutSig) {
+    app.lastOutSig = outSig;
+    refreshOutputs().then(() => renderCapture());
+  }
   renderHeaderInfo();
   for (const dev of state.devices) {
     if (dev.state === "device" && !app.deviceLists[dev.serial]) {
@@ -396,6 +416,7 @@ function markDirty(dirty) {
 function setParseStatus({ ok, error, durationMs, bufferKb }) {
   const host = $("#status-pills");
   host.textContent = "";
+  $("#btn-apply-default").disabled = !ok;
   const add = (text, cls) => {
     const pill = el("span", "pill" + (cls ? " " + cls : ""), text);
     host.appendChild(pill);
@@ -415,8 +436,7 @@ function setParseStatus({ ok, error, durationMs, bufferKb }) {
     app.editor.setError(error.line);
     const note = $("#parse-note");
     note.textContent = t("editor.lineError",
-      { line: error.line, col: error.col, msg: error.message }) +
-      " — " + t("builder.disabledNote");
+      { line: error.line, col: error.col, msg: error.message });
     note.classList.remove("hidden");
   }
 }
@@ -601,7 +621,7 @@ function renderHeaderInfo() {
   const dir = (app.state && app.state.output_dir) ||
     app.settings.output_dir || "";
   const node = $("#out-path");
-  node.textContent = dir;
+  node.textContent = compactPath(dir);
   node.title = dir;
   const lang = getLang();
   $("#lang-zh").classList.toggle("active", lang === "zh");
@@ -661,6 +681,15 @@ function quitApp() {
 function bindStatic() {
   document.querySelectorAll(".topbar-btn[data-view]").forEach((b) => {
     b.addEventListener("click", () => setView(b.dataset.view));
+  });
+  document.querySelectorAll(".pane-btn[data-pane]").forEach((b) => {
+    b.addEventListener("click", () => {
+      const mode = b.dataset.pane;
+      $("#workbench-body").dataset.pane = mode;
+      document.querySelectorAll(".pane-btn[data-pane]").forEach((x) => {
+        x.classList.toggle("active", x === b);
+      });
+    });
   });
   $("#btn-quit").addEventListener("click", quitApp);
   $("#lang-zh").addEventListener("click", () => switchLang("zh"));
