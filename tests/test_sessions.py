@@ -3,6 +3,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from adbperfetto.adb import Result
 from adbperfetto.device import DeviceInfo
@@ -459,6 +460,68 @@ class RecordSessionTests(unittest.TestCase):
                 "/data/debuglogger/mobilelog/APLog_x", local))
             self.assertFalse((local / "APLog_x").exists())
             self.assertTrue((local / "main.txt").exists())
+
+
+class StoppedAtTests(unittest.TestCase):
+    def test_done_freezes_elapsed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            adb = make_record_adb()
+            session = RecordSession(**record_kwargs(tmp, adb))
+            session.start(CONFIG, "test", 60000)
+            self.assertTrue(wait_for(
+                lambda: session.status == "recording"))
+            session.stop()
+            self.assertTrue(wait_for(lambda: session.status == "done", 10))
+            first = session.api_dict()
+            self.assertIsNotNone(first["stopped_at"])
+            self.assertEqual(
+                first["elapsed_s"],
+                int(first["stopped_at"] - first["started_at"]))
+            with mock.patch("adbperfetto.sessions.time.time",
+                            return_value=first["stopped_at"] + 3600):
+                later = session.api_dict()
+            self.assertEqual(later["stopped_at"], first["stopped_at"])
+            self.assertEqual(later["elapsed_s"], first["elapsed_s"])
+
+    def test_stopped_at_clamped_to_duration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            adb = make_record_adb()
+            session = RecordSession(**record_kwargs(tmp, adb))
+            session.duration_ms = 10000
+            session.started_at = time.time() - 60
+            session._set_status("pulling")
+            self.assertAlmostEqual(
+                session.stopped_at, session.started_at + 10, places=3)
+
+    def test_recording_clears_and_stopping_keeps_stopped_at(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            adb = make_record_adb()
+            session = RecordSession(**record_kwargs(tmp, adb))
+            session._set_status("stopping")
+            self.assertIsNone(session.stopped_at)
+            session._set_status("pulling")
+            self.assertIsNotNone(session.stopped_at)
+            session._set_status("recording")
+            self.assertIsNone(session.stopped_at)
+            session._set_status("done")
+            self.assertIsNotNone(session.stopped_at)
+            session._set_status("starting")
+            self.assertIsNone(session.stopped_at)
+
+    def test_record_round_trip_stopped_at(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            adb = make_record_adb()
+            session = RecordSession(**record_kwargs(tmp, adb))
+            session._set_status("done")
+            record = session.record()
+            self.assertEqual(record["stopped_at"], session.stopped_at)
+            loaded = RecordSession(**record_kwargs(tmp, adb))
+            loaded._load_record(record)
+            self.assertEqual(loaded.stopped_at, session.stopped_at)
+            # Old state files have no stopped_at: stays None.
+            record.pop("stopped_at")
+            loaded._load_record(record)
+            self.assertIsNone(loaded.stopped_at)
 
 
 class FlightSessionTests(unittest.TestCase):

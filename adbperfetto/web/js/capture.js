@@ -67,7 +67,8 @@ function deviceStatus(dev) {
 }
 
 function elapsedS(session) {
-  return Math.max(0, (Date.now() / 1000) - session.started_at);
+  const end = session.stopped_at || Date.now() / 1000;
+  return Math.max(0, end - session.started_at);
 }
 
 // Mirrors outputs.safe_filename on the backend.
@@ -523,14 +524,16 @@ export function createCapture(deps) {
     const mode = s.mode || "record";
     const defs = mode === "record"
       ? [["elapsed", t("readout.elapsed"), true],
-         ["size", t("readout.size")],
-         ["phone", t("readout.phone")]]
+         ["size", t("readout.size")]]
       : [["elapsed", t("readout.elapsed"), true],
-         ["snaps", t("readout.snapshots")],
-         ["memory", t("readout.memory")],
-         ["phone", t("readout.phone")]];
-    if (mode === "record" && s.mobilelog) {
-      defs.splice(2, 0, ["mlog", t("readout.mobilelog")]);
+         ["snaps", t("readout.snapshots")]];
+    if (ACTIVE.has(s.status)) {
+      if (mode === "record") {
+        if (s.mobilelog) defs.push(["mlog", t("readout.mobilelog")]);
+      } else {
+        defs.push(["memory", t("readout.memory")]);
+      }
+      defs.push(["phone", t("readout.phone")]);
     }
     const row = el("div", "readouts");
     for (const [id, label, big] of defs) {

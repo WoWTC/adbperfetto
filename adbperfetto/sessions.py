@@ -180,6 +180,7 @@ class _Session:
         self.stop_requested = False
         self.abandoned = False
         self.started_at = time.time()
+        self.stopped_at = None
         self.size_bytes = 0
         self.pull_progress = None
         self.preset_name = ""
@@ -219,8 +220,21 @@ class _Session:
         return self.adb.shell(self.serial, command, timeout=timeout,
                               input_text=input_text)
 
+    def _mark_stopped(self):
+        if self.stopped_at is not None:
+            return
+        now = time.time()
+        if self.duration_ms:
+            now = min(now, self.started_at + self.duration_ms / 1000)
+        self.stopped_at = now
+
     def _set_status(self, status: str, message: str | None = None):
         self.status = status
+        if status in ("starting", "recording"):
+            self.stopped_at = None
+        elif status in ("pulling", "done", "failed", "ended",
+                        "abandoned"):
+            self._mark_stopped()
         if message is not None:
             self.message = message
         log.info("[%s] %s -> %s", self.serial, self.mode, status)
@@ -269,6 +283,7 @@ class _Session:
             "status": self.status,
             "started_at": datetime.fromtimestamp(
                 self.started_at, tz=timezone.utc).isoformat(),
+            "stopped_at": self.stopped_at,
             "model": self.model,
             "info": (self.info.to_dict() if self.info is not None
                      else None),
@@ -306,7 +321,9 @@ class _Session:
             "status": self.status,
             "connected": self.connected,
             "started_at": self.started_at,
-            "elapsed_s": max(0, int(time.time() - self.started_at)),
+            "stopped_at": self.stopped_at,
+            "elapsed_s": max(0, int((self.stopped_at or time.time())
+                                   - self.started_at)),
             "size_bytes": self.size_bytes,
             "preset_name": self.preset_name,
             "duration_ms": self.duration_ms,
@@ -335,6 +352,7 @@ class _Session:
                 record["started_at"]).timestamp()
         except (KeyError, ValueError):
             self.started_at = time.time()
+        self.stopped_at = record.get("stopped_at")
         self.model = record.get("model", {})
         info = record.get("info")
         if info and self.info is None:
@@ -489,6 +507,7 @@ class RecordSession(_Session):
         """Stop monitoring; leave the device session and file alone."""
         self.abandoned = True
         self.status = "abandoned"
+        self._mark_stopped()
         self.message = "Left running on the device"
 
     # -- worker -----------------------------------------------------------
@@ -754,6 +773,7 @@ class FlightSession(_Session):
                     self.remote_path = base
             else:
                 self.status = "ended"
+                self._mark_stopped()
                 return
         if self.status == "starting":
             self.status = "recording"
@@ -815,6 +835,7 @@ class FlightSession(_Session):
     def abandon(self):
         self.abandoned = True
         self.status = "abandoned"
+        self._mark_stopped()
         self.message = "Left running on the device"
         self._snap_queue.put(None)
 
